@@ -17,7 +17,13 @@ sergei_iliev@yahoo.com
 */
 #define OS MEGAACORN
 
-#define VERSION 2.5
+#define VERSION 2.6
+
+#define HIGH_RAM_ADDRESS high(SRAM_START)
+
+#define TRUE  1
+#define FALSE 0 
+
 
 /*
 *Define the number of tasks. Up to 16 for X and Mega kernel 
@@ -26,6 +32,10 @@ sergei_iliev@yahoo.com
 #if (TASKS_NUMBER>16)
 	#error Mega Acorn kernel maximum tasks number is 16
 #endif
+
+;Keeping TCB structures as first structures in RAM layout enables
+;less instructions in round robin calculations 
+#define TCB_MAX_SIZE   low(SRAM_START+1+(TASKS_NUMBER*TASK_TCB_SIZE))
 
 ;Comment out in production mode!!!!!!!!!!!!!!!!!!!!!!
 #define DEBUG 
@@ -54,7 +64,7 @@ Define Synchronization macros if needed.
 /*
 Enable sleep mode 
 */
-#define SLEEP_MODE
+;#define SLEEP_MODE
 ;.EQU CONS_TIMER_COMPARE=((SYSTEM_CLOCK/8)/(1000000/SYSTEM_TICK))   ;devider =8
 
 .EQU CONS_TIMER_COMPARE=57000
@@ -69,42 +79,45 @@ Enable sleep mode
 ;2.MSB
 ;-----------------------;
 ;3.Task status byte
-;6bit->Is task schedulable(0-schedulable(default);1-not schedulable;Idle task is always schedulable)
+;7bit -> Is task in waitable state
+;6bit->Is task in runable state(0-schedulable(default);1-not schedulable;Idle task is always schedulable)
 ;@NOTUSED(use IDF instead)
-;7bit->Task priority(0-Normal level(default),task could be descheduled;1-INTERRUPT level)
 ;0-3bit-> Task ID number(up to 16 tasks)
 ;-----------------------
 ;4.Sleep Timeout
 ;-----------------------;
 
 
-;is high priority
-;.SET TASK_PRIORITY_BIT=7   ;not used - use global IDF instead
-;is task shedulable 
+;***Disbale enabel task scheduling in CPU data byte structure bit
+.SET CPU_SCHEDULE_BIT=7
+
+;***wait state related
+.EQU TASK_WAIT_ON=1
+.EQU TASK_WAIT_OFF=0
+
+;is task shedulable runnable bit
 .SET TASK_SCHEDULABLE_BIT=6
 
-;***priorityt related
-;.EQU TASK_PRIORITY_NORMAL=0
 
-;.EQU TASK_PRIORITY_INTERRUPT=1
-
-;***scheduling related
+;***runable state related
 .EQU TASK_SCHEDULABLE_ON=0
-
 .EQU TASK_SCHEDULABLE_OFF=1
 
 
 .SET TASK_CONTEXT=0x00
 
-.SET INTERRUPT_CONTEXT=0x255
+.SET INTERRUPT_CONTEXT=0xFF
 
 /*
-MUST be bigger then TASK_STACK_REGISTER_DEPTH=35(32reg+SREG+2 bytes Return address)
+MUST be bigger then TASK_STACK_CPU_CONTEXT_SIZE
 */
 
-.EQU TASK_STACK_DEPTH=55  ;MUST be bigger then TASK_STACK_REGISTER_DEPTH
+.EQU TASK_STACK_SIZE=60  
 
-.EQU TASK_STACK_REGISTER_DEPTH=35
+/*
+TASK_STACK_CPU_CONTEXT_SIZE=35(32reg+SREG+2 bytes Return address)
+*/
+.EQU TASK_STACK_CPU_CONTEXT_SIZE=35
 
 /*
 ;Not all devicess start from 0x060 , at90USB starts from 0x100 for example
@@ -197,7 +210,7 @@ TCB_16: .byte TASK_TCB_SIZE
 #endif
 .cseg
 
-#message OS  VERSION " using " TASKS_NUMBER " tasks."
+#message **********************OS  VERSION " using " TASKS_NUMBER " tasks.*************************"
 
 .MACRO  _keOS_SAVE_CONTEXT
 	push r0
@@ -235,9 +248,9 @@ TCB_16: .byte TASK_TCB_SIZE
 	push r30
 	push r31
 
-    lds r26, pxCurrentTCB 
+    lds XL, pxCurrentTCB 
     ;lds r27, pxCurrentTCB + 1 
-    ldi r27,0
+    ldi XH,HIGH_RAM_ADDRESS
 
 	in r0, SPL
     st x+, r0 
@@ -247,9 +260,9 @@ TCB_16: .byte TASK_TCB_SIZE
 
 ;new context is in pxCurentTCB
 .MACRO  _keOS_RESTORE_CONTEXT
-	lds r26, pxCurrentTCB
+	lds XL, pxCurrentTCB
     ;lds r27, pxCurrentTCB + 1
-	ldi r27,0
+	ldi XH,HIGH_RAM_ADDRESS
 	
 	ld r28, x+ 
 	out SPL, r28 
@@ -292,48 +305,127 @@ TCB_16: .byte TASK_TCB_SIZE
     pop r0
 .ENDMACRO
 
-;@CHANGED(version=2.1)------------------------------
-;KERNEL MODE API
-;USAGE:	Used during kernel initialization,use any register
-;INPUT:	@0  task label
+;----------------------------------------------------------------
+;USER MODE API
+;@USAGE:	Create task and initialize its TCB and stack resources. Used during kernel boot initialization,uses any register
+;@INPUT:
+;		@0  task label
 ;		@1  task number   
-;		@2  task control RAM block - TCB
-;---------------------------------------------------
-.MACRO  _REGISTER_TASK
-;1.Save initial return address points at Tasks' begining
+;       @2  task stack size -> it must be bigger then CPU context size
+;@WARNING:  Use r25:r24 to store current stack offset
+;----------------------------------------------------------------
+
+#define TCB_HIGH(i) ldi XH,high(TCB_##i)
+#define TCB_LOW(i)  ldi XL,low(TCB_##i)
+
+.MACRO  _REGISTER_TASK_STACK
+    .if @2<=TASK_STACK_CPU_CONTEXT_SIZE 
+	  .ERROR "****************ARE YOU OK?***********************"
+	.endif
+;init task's stack 
 	ldi XL,low(@0)
 	ldi XH,high(@0)
-	
-	ldi ZL,low((@1-1)*TASK_STACK_DEPTH)
-	ldi ZH,high((@1-1)*TASK_STACK_DEPTH)
-	rcall InitStack 
-;3.DEBUG marker form RAM layout defragmentation(marks end of tasks stack)
+
+	mov ZL,r24
+	mov ZH,r25
+	rcall InitStack
 
 #ifdef DEBUG
     ldi temp,low(RAMEND)
 	mov YL,temp
 	ldi temp,high(RAMEND)
 	mov YH,temp
-    SUBI16 YL,YH,((@1-1)*TASK_STACK_DEPTH)+TASK_STACK_DEPTH-1    
-	ldi temp,0xAA
+
+
+    SUB16 YL,YH,r24,r25
+	sbiw YH:YL,@2-1
+
+	ldi temp,0x5A
+	st Y,temp
+#endif
+;2.Set stack pointer to stacks TCB
+    ;ldi XL,low(@2)
+	;ldi XH,high(@2)    
+	TCB_HIGH(@1)
+	TCB_LOW(@1)
+
+	mov ZL,r24
+	mov ZH,r25
+
+	adiw ZH:ZL,TASK_STACK_CPU_CONTEXT_SIZE
+    
+	ldi r17,(@1-1)
+	rcall InitTCB
+
+	;increase offset to next free position
+	adiw r25:r24,@2
+.ENDMACRO
+;----------------------------------------------------------------
+;USER MODE API
+;@USAGE:	Create task and initialize its TCB and stack resources.Uses default stack size per task. Used during kernel boot initialization,uses any register
+;@INPUT:	@0  task label
+;			@1  task number   
+;@WARNING:  Use r25:r24 to store current stack offset
+;----------------------------------------------------------------
+.MACRO  _REGISTER_TASK
+;1.Save initial return address points at Tasks' begining
+	ldi XL,low(@0)
+	ldi XH,high(@0)
+	
+	mov ZL,r24
+	mov ZH,r25
+	rcall InitStack
+
+	;ldi ZL,low((@1-1)*TASK_STACK_DEPTH)
+	;ldi ZH,high((@1-1)*TASK_STACK_DEPTH)
+	;rcall InitStack 
+;3.DEBUG marker form RAM layout defragmentation(marks end of tasks stack)
+
+#ifdef DEBUG
+	ldi temp,low(RAMEND)
+	mov YL,temp
+	ldi temp,high(RAMEND)
+	mov YH,temp
+
+    SUB16 YL,YH,r24,r25
+	sbiw YH:YL,TASK_STACK_SIZE-1
+
+	ldi temp,0x5A
 	st Y,temp
 #endif 
 
 
 ;2.Set stack pointer to stacks TCB
-    ldi XL,low(@2)
-	ldi XH,high(@2)    
+    ;ldi XL,low(@2)
+	;ldi XH,high(@2)    
 
-	ldi ZL,low(((@1-1)*TASK_STACK_DEPTH)+TASK_STACK_REGISTER_DEPTH)
-	ldi ZH,high(((@1-1)*TASK_STACK_DEPTH)+TASK_STACK_REGISTER_DEPTH)
+	
+	;ldi ZL,low(((@1-1)*TASK_STACK_DEPTH)+TASK_STACK_REGISTER_DEPTH)
+	;ldi ZH,high(((@1-1)*TASK_STACK_DEPTH)+TASK_STACK_REGISTER_DEPTH)
+    
+	;ldi r17,(@1-1)
+	;rcall InitTCB
+
+
+	TCB_HIGH(@1)
+	TCB_LOW(@1)
+
+	mov ZL,r24
+	mov ZH,r25
+
+	adiw ZH:ZL,TASK_STACK_CPU_CONTEXT_SIZE
     
 	ldi r17,(@1-1)
-	rcall InitTcb
-
+	rcall InitTCB
+	;increase offset to next free position using defaul task stack size
+	adiw r25:r24,TASK_STACK_SIZE
 .ENDMACRO 
 
+;----------------------------------------------------------
+;Internal private use only
 ;@INPUT: X task label
-;        Z initial tasks stack pointer    
+;        Z initial tasks stack offset
+;----------------------------------------------------------    
 InitStack:
 ;position at the beginning of stack
     ldi temp,low(RAMEND)
@@ -343,16 +435,19 @@ InitStack:
 
 	SUB16 YL,YH,ZL,ZH
 ;save inital return address to task begining
-	mov r0,XL
-	st Y,r0
-	mov r0,XH
-	st -Y,r0    
+	;mov r0,XL
+	st Y,XL
+	;mov r0,XH
+	st -Y,XH    
 ret
 
+;----------------------------------------------------------
+;Internal private use only
 ;@INPUT: X - task control RAM block - TCB
 ;        Z - set the end of task stack = 32regs+SREAG+previous PC
 ;		 r17  - task ID	
-InitTcb:
+;---------------------------------------------------------
+InitTCB:
 ;position at the beginning of stack
     ldi temp,low(RAMEND)
 	mov YL,temp
@@ -361,33 +456,33 @@ InitTcb:
 ;initial stack pointer position
     SUB16 YL,YH,ZL,ZH
     
-	mov r0,YL
-	st X+,r0
-	mov r0,YH
-	st X+,r0  
+	;mov r0,YL
+	st X+,YL
+	;mov r0,YH
+	st X+,YH  
 ;set task ID
     ;ldi temp,@1     ;set task's ID
 	st X,r17 
 ret
 
-;----------------------------------
+;----------------------------------------------------------------
 ;USER MODE API
 ;USAGE:	Yield task (relinquish the quantum) to the next one.
-;		RETI will activate the interrupt
-;----------------------------------
+;		RETI will activate the interrupt flag in status register
+;----------------------------------------------------------------
 .MACRO  _YIELD_TASK
     cli
- 	rcall TaskSchedular
+ 	call TaskSchedular
 .ENDMACRO
 
-;-------------------------------------------------------
+;----------------------------------------------------------------
 ;USER MODE API
 ;Start executive mode - 
 ;1.elivate task to DEVICE_LEVEL
 ;2.disable scheduling 
 ;Use this in rear cases like 1-wire protocol.
 ;@WARNING: using _INTERRUPT_WAIT/_INTERRUPT_END is not allowed since DPC flag is always on!
-;-------------------------------------------------------
+;----------------------------------------------------------------
 .MACRO  _START_EXECUTIVE_MODE    
 	push temp
 	
@@ -414,21 +509,21 @@ ret
 	pop temp
 .ENDMACRO
 
-;----------------------------------------------------------
+;----------------------------------------------------------------
 ;USER MODE API
 ;USAGE:	Save time in units to wait on in current task TCB
 ;		Used in defined thread context
 ;USED:	temp,YL,YH(saved on current task stack)
 ;INPUT:   @0 - time in units
 ;WARNING:  NOT USED IN INTERRUPT or DEVICE level ,only current thread calls it while in PASSIVE mode!!!!!!!!!!!
-;----------------------------------------------------------
+;----------------------------------------------------------------
 .MACRO  _SLEEP_TASK
 	push temp
 	push YL
 	push YH 
 
 	lds YL, pxCurrentTCB
-	ldi YH,0               ;keep TCB structures in first 256 bytes of RAM!
+	ldi YH,HIGH_RAM_ADDRESS              
 
 	ldi temp,@0
 	std Y+3,temp
@@ -450,7 +545,7 @@ end:
 
 
 
-;----------------------------------------------------------
+;----------------------------------------------------------------
 ;USER MODE API
 ;USAGE:	Save time in units to wait on in current task TCB
 ;		Used in defined thread context.
@@ -461,7 +556,7 @@ end:
 
 ;INPUT:   @0(16<rX<31) - time in units
 ;WARNING:  NOT USED IN INTERRUPT,only current thread calls it!!!!!!!!!!!
-;----------------------------------------------------------
+;----------------------------------------------------------------
 .MACRO _SLEEP_TASK_EX
 	push YL
 	push YH 
@@ -469,7 +564,7 @@ end:
 	 
 
 	lds YL, pxCurrentTCB
-	ldi YH,0               ;keep TCB structures in first 256 bytes of RAM!
+	ldi YH,HIGH_RAM_ADDRESS
 
 	std Y+3,@0
 
@@ -487,7 +582,7 @@ end:
 	pop YH
 	pop YL 
 .ENDMACRO
-;----------------------------------------------------------
+;----------------------------------------------------------------
 ;KERNEL MODE API 
 ;USAGE:	Decrement timeout byte in each task's TCB if<>0
 ;		Walks through all TCB and decrements timeout byte
@@ -495,7 +590,7 @@ end:
 ;USED:	temp,YL,YH(saved on current task stack,temp is saved in _PRE_INTERRUPT)
 ;INPUT: none
 ;WARNING: USED IN INTERRUPT ONLY!!!
-;---------------------------------------------------------- 
+;----------------------------------------------------------------
 
 .MACRO _kePROCESS_SLEEP_INTERVAL
 	push YL
@@ -510,13 +605,7 @@ loop:
 	breq skip
     dec temp
     std Y+3,temp    
-skip:
-	/*
-	ldd temp,Y+2 
-    andi temp,0x0F
-	cpi temp,TASKS_NUMBER-1
-	breq end
-	*/	   
+skip:	   
 	cpi YL,low(TCB_1+(TASK_TCB_SIZE*(TASKS_NUMBER-1)))      
     breq end
 
@@ -527,13 +616,13 @@ end:
 	pop YL 
 
 .ENDMACRO
-;-------------------------------------------------------------
+;----------------------------------------------------------------
 ;USER MODE API 
 ;USAGE:	 suspend current task or current task suspends itself.
 ;		 Sets current task schedulability bit to OFF.
 ;USED:	 YL,YH,temp(saved on current task stack)
 ;WARNING: CALLED IN CURRENT TASK CONTEXT 
-;-------------------------------------------------------------
+;----------------------------------------------------------------
 .MACRO _SUSPEND_TASK
     cli	
 	push temp
@@ -541,7 +630,7 @@ end:
 	push YH 
 	
 	lds YL, pxCurrentTCB
-	ldi YH,0
+	ldi YH,HIGH_RAM_ADDRESS
 
     ;***modify SCHEDULABILITY bit    
 	ldd temp,Y+2
@@ -554,7 +643,7 @@ end:
 	sei
     _YIELD_TASK           ;yield in task context only
 .ENDMACRO
-;@CHANGED-------------------------------------------------------------
+;-------------------------------------------------------------
 ;KERNEL and USER MODE API
 ;Sets any task schedulability bit to ON
 ;INPUT:  @0 - context{0=task;0xFF=interrupt}
@@ -572,7 +661,7 @@ end:
 	push XL
 	push XH
     ;calculate the target TCB and the byte offset where the scedualability bit is
-    calculate_target_tcb_offset (@1-1)*TASK_TCB_SIZE,2
+    CALCULATE_TARGET_TCB_OFFSET (@1-1)*TASK_TCB_SIZE,2
 
     ld temp,X	
     cbr temp,(1<<TASK_SCHEDULABLE_BIT)
@@ -586,11 +675,13 @@ end:
 	sei
 	.ENDIF
 .ENDMACRO
+;----------------------------------------------------------------
 ;PRIVATE helper macro - never call outside of kernel.inc
 ;INPUT:  @0 - task number#{0,1,2,3,4......n}
 ;		 @1 - ofset within TCB 	 
 ;USED: XL,XH
-.MACRO calculate_target_tcb_offset
+;----------------------------------------------------------------
+.MACRO CALCULATE_TARGET_TCB_OFFSET
 	ldi XL,low((TCB_1+@0)+@1)
 	ldi XH,high((TCB_1+@0)+@1)
 .ENDMACRO
@@ -630,7 +721,7 @@ end:
 .ENDMACRO
 
 
-
+;----------------------------------------------------------------
 ;USER MODE API
 ;Used in the context of a thread only!
 ;Wait indefinitly on an event.
@@ -639,7 +730,7 @@ end:
 ;USAGE: temp(saved on current task stack)
 ;WARNING:  A new signal from onather task could come (if more then one task notifies the waiting task) between 
 ;          code points 1 and 2! The second signal will be swallowed up so mind this when more then one task notifies the waiting task!
-            
+;----------------------------------------------------------------           
 .MACRO _EVENT_WAIT
     push temp
 
@@ -661,12 +752,13 @@ event_is_set:               ;1  - a signal has come
 	pop temp                  
 .ENDMACRO
 
+;----------------------------------------------------------------
 ;USER MODE API
 ;Used in the context of a thread only!
 ;Manual reset event.
 ;INPUT: @0 - event #
 ;USAGE: temp(saved on current task stack)
-
+;----------------------------------------------------------------
 .MACRO _EVENT_RESET
 	push temp
 	cli
@@ -713,13 +805,13 @@ mutex_is_signaled:
 
 	pop temp
 .ENDMACRO
-
+;----------------------------------------------------------------
 ;USER MODE API 
 ;		Set the flag to signaled on exiting the guarded section.
 ;		called in the context of a thread after the call to _MUTEX_WAIT to mark the END of the protected code section.
 ;INPUT: @0 - mutex #
 ;USAGE: temp(saved on current task stack)
-
+;----------------------------------------------------------------
 .MACRO   _MUTEX_RELEASE
 	cli						;write-protect MUTEXT_STATE byte!	
 	
@@ -735,8 +827,56 @@ mutex_is_signaled:
 	sei
 .ENDMACRO
 
-;KERNEL API
-;Context switch from one task to onather.
+;per CPU register
+.dseg
+CPU: .byte 1
+.cseg
+;----------------------------------------------------------------
+;USER MODE API 
+;Task calling this macro will make the task switch disabled.
+;As a result the calling task will execute until it explicitly enables task switching
+;@INPUT: @0 - TRUE or FALSE
+;@USAGE: temp
+;@WARNING: Since RAM is limited - instead of using a separate RAM location for storing CPU wide data, 
+;		  OCDR I/O register is used which prevents the usage of debugger
+;
+;----------------------------------------------------------------
+
+.MACRO _DISABLE_TASK_SWITCH
+	
+	lds temp,CPU
+.IF @0==TRUE       
+    sbr temp,1<<CPU_SCHEDULE_BIT	   
+.ELSE
+	cbr temp,1<<CPU_SCHEDULE_BIT
+.ENDIF
+	sts CPU,temp
+	
+.ENDMACRO
+
+;----------------------------------------------------------------
+;KERNEL MODE API
+;Checks if task switch is disabled. Skips context switch from one task to another. 
+;@INPUT: @0  jump target
+;@WARNING: Platform dependent
+;----------------------------------------------------------------
+.MACRO _keSKIP_SWITCH_TASK
+  _PRE_INTERRUPT
+
+  lds temp,CPU
+  sbrs temp,CPU_SCHEDULE_BIT
+  rjmp switch_task_on
+  
+  _POST_INTERRUPT 
+  rjmp @0    ;switch task is OFF
+
+switch_task_on:
+_POST_INTERRUPT
+.ENDMACRO
+
+;----------------------------------------------------------------
+;KERNEL MODE API
+;Context switch from one task to another.
 ;There are 2 priority levels
 ;			1.DEVICE LEVEL processing
 ;			2.NORMAL LEVEL processing 
@@ -746,7 +886,7 @@ mutex_is_signaled:
 ;WARNING:Having too many tasks executing in DEVICE priority level for a long time will leed to NORMAL level tasks starvation!
 ;@DANGER - the scheduler will loop forever if all tasks suspended at the same time - so keep one task(Idle Task) free of suspention as a fallback!
 ;@WORKAROUND - keep at least one/make sure you have at least one task free of suspention!Usualy System Task will do this for you
-
+;----------------------------------------------------------------
 .MACRO _keSWITCH_TASK
 ;1.DEVICE level priority based in regard to IDF byte
 devicelevel:
@@ -769,31 +909,25 @@ loop:
 
 	rjmp end
 
-
 ;2.NORMAL level round robin(eternal loop if no task is ready,will block if all tasks suspended)
 normallevel:
 	lds YL, pxCurrentTCB
-	ldi YH,0
+	ldi YH,HIGH_RAM_ADDRESS
 
-	ldd temp,Y+2	;position on priority bit byte
-la:	
-	andi temp,0x0F          ;isolate task ID
-	cpi temp,TASKS_NUMBER-1
-    brlo  laa
-;round robin to first TCB
+la:
+	adiw YH:YL,TASK_TCB_SIZE
+
+	cpi YL,TCB_MAX_SIZE     
+	brne lab
 	ldi YL, low(TCB_1)
-    ldi YH, high(TCB_1)	
-    rjmp  lab
-laa:
-;round robin to next TCB
-	adiw YH:YL,TASK_TCB_SIZE            
-lab:    
+	ldi YH, high(TCB_1)	
+lab:
 	ldd temp,Y+2
 	sbrc temp,TASK_SCHEDULABLE_BIT
     rjmp la	
-
 end:	
 	sts pxCurrentTCB,YL
+
 .ENDMACRO
 
 
@@ -810,53 +944,8 @@ A task executes at DEVICE level until it volantarily exits it through _INTERRUPT
 It is a good practise to disable the respective interrupt source during the current interrupt processing. 
 @WARNING:looping forever between _INTERRUPT_WAIT and _INTERRUPT_END(while in DEVICE level) will break the kernel!
 */
-;--------------------------------------------------------------------
-;KERNEL MODE API
-;Activates the "interrupt processing task" by setting the corresponding 
-;interrupt dispatch flag(index).
-;Executed as atomic operation - only within interrupt procedure
-;Used in interrupt context which happens in arbitrary thread context.
-;Mind register usage!!!!
-;INPUT: @0 - interrupt dispatch priority index
-;USED: r17,temp(saved on current arbitrary task stack)
-;@EXAMPLE:
 
-;intX:
-;  _PRE_INTERRUPT
-
-  ;Do your stuff here (disable interrupt most likely...).Don't forget to push/pop used registers 
-  
-;  _keDISPATCH_INTERRUPT
-
-;  _POST_INTERRUPT
-
-;   reti
-
-  ;as you can see THERE IS a reti instraction!Task scheduling timer is set to activate descheduling  
-  ;where the real dispatching occure. Dispatching may not happen if interrupt of higher priority 
-  ;is being processed.
-;---------------------------------------------------------------------
-/*
-.MACRO _keDISPATCH_INTERRUPT
-	;push temp  saved in _PRE_INTERRUPT macro ->save stack usage!              ;
-	push r17
-
-	lds temp,InterruptDispatchFlag
-    mov r17,temp
-	sbr temp,1<<@0
-    sts InterruptDispatchFlag,temp
-	cpi r17,1<<@0
-    brsh  nodeschedual    
-
-    _SET_TASKSHEDUAL_TIMER	temp     ;DESCHEDUAL only if higher priority
-
-nodeschedual:
-
-    pop r17
-    ;pop temp   restored in _POST_INTERRUPT macro       
-.ENDMACRO
-*/
-;-----------------------------------------------------------------
+;----------------------------------------------------------------
 ;USER MODE API
 ;Registers the calling task with Interrupt Dispatcher.
 ;Makes the calling task - interrupt handling one.
@@ -865,27 +954,27 @@ nodeschedual:
 ;INPUT:
 ;        @0 - temp register,
 ;        @1 - interrupt dispatch priority index(7/highest/ through 0/lowest/)
-;-----------------------------------------------------------------
+;----------------------------------------------------------------
 
 .MACRO _INTERRUPT_DISPATCHER_INIT
 	lds @0,pxCurrentTCB
 	sts IDT+(7-@1),@0    
 .ENDMACRO
 
-;-----------------------------------------------------------------------
+;----------------------------------------------------------------
 ;USER MODE API
 ;Wait on interrupt dispatch.
 ;Used in "interrupt processing task",activated by INTERRUPT DISPATCH API
 ;INPUT: @0 - interrupt dispatch priority index
 ;USED: YL,YH,temp(saved on current task stack)
-;-----------------------------------------------------------------------
+;----------------------------------------------------------------
 .MACRO  _INTERRUPT_WAIT
 	push temp
 	push YL
 	push YH 
 
 	lds YL, pxCurrentTCB
-    ldi YH, 0
+    ldi YH, HIGH_RAM_ADDRESS
 	
 ;1.make task unscheduleable
     cli
@@ -907,13 +996,13 @@ end:
 	pop temp
 .ENDMACRO
 
-;-----------------------------------------------------------------
+;----------------------------------------------------------------
 ;USER MODE API
 ;Reduce current task level form TASK_PRIORITY_INTERRUPT to TASK_PRIORITY_NORMAL
 ;Used at the end of each "interrupt processing task"!!!!
 ;INPUT: @0 - interrupt dispatch priority index
 ;USED: YL,YH,temp(saved on current task stack)
-;-----------------------------------------------------------------
+;----------------------------------------------------------------
 .MACRO _INTERRUPT_END	
 	push temp
 	push YL
@@ -921,7 +1010,7 @@ end:
     cli
 	
 	lds YL, pxCurrentTCB
-	ldi YH,0
+	ldi YH,HIGH_RAM_ADDRESS
 	
     		
 	;1.***modify SCHEDULABILITY bit    
@@ -941,24 +1030,24 @@ end:
 	_YIELD_TASK    ;Add YIELD_TASK so that waiting DPC of lower priority may be executed
 .ENDMACRO
 
-;-----------------------------------------------------
+;----------------------------------------------------------------
 ;Kernel Mode API
 ;Call at the beginning of interrupt handler procedure
 ;INPUT: none
 ;USAGE: temp
-;-----------------------------------------------------
+;----------------------------------------------------------------
 .MACRO _PRE_INTERRUPT
     push temp
 	in temp,SREG
     push temp	
 .ENDMACRO
 
-;-----------------------------------------------------
+;----------------------------------------------------------------
 ;Kernel Mode API
 ;Call at the end of interrupt handler procedure
 ;INPUT: none
 ;USAGE: temp 
-;-----------------------------------------------------
+;----------------------------------------------------------------
 .MACRO _POST_INTERRUPT
 	pop temp
     out SREG,temp
@@ -966,7 +1055,6 @@ end:
 .ENDMACRO 
 
 /*
-@EXPERIMENTAL
 In search of a faster interrupt dispatcher to dispatch to interrupt handling task as fast as possible
 Differered Procedure Call/DPC semantic
 @EXAMPLE:
@@ -996,7 +1084,6 @@ intX:
 	
 	brsh  nodeschedual       ;avoid dispatching if DPC of higher priority is being processed
 	/*
-	
 	ldi temp,low(DispatchDPCExtension)
     push temp
 	ldi temp,high(DispatchDPCExtension)
@@ -1004,12 +1091,14 @@ intX:
     ret           ;1.deschedual/dispatch right away - notice that interrupt flag in SREG is still OFF
 	              ;reti in TaskSchedular will enable it              
 				  ;2.temp and SREG will be restored between labels "DispatchDPCExtension" and "TaskSchedular"
-	*/
+
+    */
 	pop temp      ;restore temp and SREG to its task's context value/make sure _PRE_INTERRUPT is invoked first!!!!!!!!!!!!!
     out SREG,temp
 	pop temp
 
 	jmp DispatchDPCExtension
+
 nodeschedual:    
     pop temp      ;restore temp and SREG to its task's context value/make sure _PRE_INTERRUPT is invoked first!!!!!!!!!!!!!
     out SREG,temp

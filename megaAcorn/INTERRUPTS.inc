@@ -17,11 +17,11 @@ in the interrupt handler as it is.
 	 
 ;.ORG OVF2addr
 ;     rjmp T2OVF
-.ORG OC2addr
-	rjmp OC2Int
+;.ORG OC2addr
+;	rjmp OC2Int
 
-.ORG OVF1addr
-     jmp TimerOVF1       ;sleep timer
+;.ORG OVF1addr
+;     jmp TimerOVF1       ;sleep timer
 
 ;.ORG OVF1addr
 ;     rjmp Timer1Int       ;ordinary timer
@@ -32,11 +32,11 @@ in the interrupt handler as it is.
 ;.ORG SPIaddr
 ;     rjmp SPIComplete
 
-.ORG	URXCaddr		; USART, Rx Complete
-     rjmp RxComplete
+;.ORG	URXCaddr		; USART, Rx Complete
+;     rjmp RxComplete
 
-.ORG	UDREaddr		; USART Data Register Empty
-	rjmp TxEmpty
+;.ORG	UDREaddr		; USART Data Register Empty
+;	rjmp TxEmpty
 
 ;.ORG	UTXCaddr		; USART, Tx Complete
 ;	rjmp TxComplete

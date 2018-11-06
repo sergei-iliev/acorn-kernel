@@ -4,49 +4,87 @@
 System_Task:
  //***turn off Watch dog reset for testing purpous
  cli
- ldi temp, (1<<WDTOE)+(1<<WDE)
- out WDTCR, temp
- ldi temp, (1<<WDTOE)
- out WDTCR, temp
+; Reset Watchdog Timer
+ wdr
+ ; Clear WDRF in MCUSR
+ in temp, MCUSR
+ andi temp, (0xff & (0<<WDRF))
+ out MCUSR, temp
+ ; Write '1' to WDCE and WDE
+ ; Keep old prescaler setting to prevent unintentional time-out
+ lds temp, WDTCSR
+ ori temp, (1<<WDCE) | (1<<WDE)
+ sts WDTCSR, temp
+ ; Turn off WDT
+ ldi temp, (0<<WDE)
+ sts WDTCSR, temp
+ ; Turn on global interrupt
  sei
 
 _THRESHOLD_BARRIER_WAIT InitTasksBarrier,TASKS_NUMBER 
 
-_SLEEP_CPU_INIT temp
+
 
 main1:
-_SLEEP_CPU r16,r17
+
 nop
 _YIELD_TASK 
 
 rjmp main1  
 ret
 
-;SOFTWARE interrupt  - autogenerate event to test the new event dispatcher.
-;Blink a LED for fun!
-.SET INT0_INDEX=3
 
-Task_2:		
-
-
-  
+Task_2:		 
  _THRESHOLD_BARRIER_WAIT InitTasksBarrier,TASKS_NUMBER 
 
 
 main2:
 nop
 nop                    
-nop
-nop
-nop
-_SLEEP_CPU_READY  VOID_CALLBACK,VOID_CALLBACK,r16,r17
+
+_YIELD_TASK 
 
 rjmp main2  	
-ret
 
-.include "include/lcdtask.asm"
-.include "include/ds18b20task.asm"
-.include "include/rs232task.asm"
+Task_3:		 
+ _THRESHOLD_BARRIER_WAIT InitTasksBarrier,TASKS_NUMBER 
+
+
+main3:
+nop
+nop                    
+nop
+nop
+_YIELD_TASK 
+
+rjmp main3  	
+
+Task_4:		 
+ _THRESHOLD_BARRIER_WAIT InitTasksBarrier,TASKS_NUMBER 
+
+
+main4:
+nop
+nop                    
+nop
+nop
+nop
+
+rjmp main4  	
+
+Task_5:		 
+ _THRESHOLD_BARRIER_WAIT InitTasksBarrier,TASKS_NUMBER 
+
+
+main5:
+nop
+nop                    
+nop
+nop
+nop
+
+rjmp main5  	
+
 
 Task_6:
 
@@ -54,7 +92,7 @@ Task_6:
 main6:
 
 rjmp main6
-ret
+
 
 
 
@@ -65,7 +103,7 @@ Task_7:
 main7:
 
 rjmp main7
-ret
+
 
 Task_8:
     
@@ -73,49 +111,48 @@ Task_8:
 main8:
 rjmp main8
 
-ret
 
 Task_9:
     
  _THRESHOLD_BARRIER_WAIT InitTasksBarrier,TASKS_NUMBER 
 main9:
 rjmp main9
-ret
+
 
 Task_10:
     
  _THRESHOLD_BARRIER_WAIT InitTasksBarrier,TASKS_NUMBER 
 main10:
 rjmp main10
-ret
+
 
 Task_11:
   
  _THRESHOLD_BARRIER_WAIT InitTasksBarrier,TASKS_NUMBER     
 main11:
 rjmp main11
-ret
+
 
 Task_12:
     
  _THRESHOLD_BARRIER_WAIT InitTasksBarrier,TASKS_NUMBER 
 main12:
 rjmp main12
-ret
+
 
 Task_13:
 
  _THRESHOLD_BARRIER_WAIT InitTasksBarrier,TASKS_NUMBER     
 main13:
 rjmp main13
-ret
+
 
 Task_14:
 
  _THRESHOLD_BARRIER_WAIT InitTasksBarrier,TASKS_NUMBER    
 main14:
 rjmp main14
-ret
+
 
 
 
@@ -125,7 +162,7 @@ Task_15:
 main15:
 
 rjmp main15
-ret
+
 
 
 Task_16:
@@ -135,16 +172,7 @@ main16:
 nop
 
 rjmp main16
-ret
 
-
-
-TimerOVF1:	
-   _PRE_INTERRUPT
-      
-   
-   _POST_INTERRUPT
-reti
 
 .EXIT
 
