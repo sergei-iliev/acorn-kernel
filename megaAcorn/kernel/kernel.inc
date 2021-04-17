@@ -17,21 +17,33 @@ sergei_iliev@yahoo.com
 */
 #define OS MEGAACORN
 
-#define VERSION 2.6
+#define VERSION 3.0
 
 #define HIGH_RAM_ADDRESS high(SRAM_START)
 
 #define TRUE  1
 #define FALSE 0 
 
-#define AVR_3_BYTE_PC
-.include "16bitMath.inc"
+
+.include "kernel/config.inc"
+.include "kernel/math.inc"
+
 .cseg
 .def    temp=r16    ;temp reg.
 /*
-*Define the number of tasks. Up to 16 for X and Mega kernel 
+Define PC bytes size
 */
-#define TASKS_NUMBER 3
+#ifndef TASKS_NUMBER
+	#error TASKS_NUMBER is not defined. Use config file to do it
+#endif 
+
+#ifdef AVR_3_BYTE_PC
+	#define AVR_PC_SIZE 3
+#else
+	#define AVR_PC_SIZE 2
+#endif
+#message CPU Program Counter is AVR_PC_SIZE bytes long
+
 #if (TASKS_NUMBER>16)
 	#error Mega Acorn kernel maximum tasks number is 16
 #endif
@@ -40,29 +52,6 @@ sergei_iliev@yahoo.com
 ;less instructions in round robin calculations 
 #define TCB_MAX_SIZE   low(SRAM_START+1+(TASKS_NUMBER*TASK_TCB_SIZE))
 
-;Comment out in production mode!!!!!!!!!!!!!!!!!!!!!!
-#define DEBUG 
-
-#ifndef SYSTEM_CLOCK  
-.equ SYSTEM_CLOCK= 8000000   ;Hz
-#endif
-
-#ifndef SYSTEM_TICK
- #define SYSTEM_TICK  100000    ;us 
-#endif
-
-/*
-Define Synchronization macros if needed.
-*/
-#define THRESHOLD_BARRIER_EXTENTION
-
-;#define EVENT_EXTENTION
-
-;#define LOCK_EXTENTION
-
-;#define  CYCLIC_BARRIER_EXTENTION
-
-;#define LATCH_EXTENTION
 
 /*
 Enable sleep mode 
@@ -118,9 +107,10 @@ MUST be bigger then TASK_STACK_CPU_CONTEXT_SIZE
 .EQU TASK_STACK_SIZE=62  
 
 /*
-TASK_STACK_CPU_CONTEXT_SIZE=36(32reg+SREG+PC(3 bytes) Return address)
+TASK_STACK_CPU_CONTEXT_SIZE=36(32reg+SREG+PC(3 bytes) Return address)   ;3 bytes PC
+TASK_STACK_CPU_CONTEXT_SIZE=35(32reg+SREG+PC(2 bytes) Return address)	;2 bytes PC
 */
-.EQU TASK_STACK_CPU_CONTEXT_SIZE=36
+.EQU TASK_STACK_CPU_CONTEXT_SIZE=32+1+AVR_PC_SIZE
 
 /*
 ;Not all devicess start from 0x060 , at90USB starts from 0x100 for example
@@ -128,89 +118,14 @@ TASK_STACK_CPU_CONTEXT_SIZE=36(32reg+SREG+PC(3 bytes) Return address)
 ;system RAM layout!!!!!!!!!
 */
 .dseg
+keMemory:
 pxCurrentTCB: .byte 1   ;keep address of the current TCB
 
+/*
+Keep TCB structure for each defined Task in RAM array
+*/
+TCB: .byte TASK_TCB_SIZE*TASKS_NUMBER
 
-
-#if TASKS_NUMBER>=1
-TCB_1: .byte TASK_TCB_SIZE     ;Stack pointer LSB:MSB to the top of the task stack
-#endif
-
-
-#if TASKS_NUMBER>=2  
-TCB_2: .byte TASK_TCB_SIZE
-#endif
-
-
-#if TASKS_NUMBER>=3
-TCB_3: .byte TASK_TCB_SIZE
-#endif    
-
-
-#if TASKS_NUMBER>=4
-TCB_4: .byte TASK_TCB_SIZE
-#endif
-
-
-
-#if TASKS_NUMBER>=5
-TCB_5: .byte TASK_TCB_SIZE
-#endif
-
-
-#if TASKS_NUMBER>=6
-TCB_6: .byte TASK_TCB_SIZE
-#endif
-
-
-#if TASKS_NUMBER>=7
-TCB_7: .byte TASK_TCB_SIZE
-#endif
-
-
-#if TASKS_NUMBER>=8
-TCB_8: .byte TASK_TCB_SIZE
-#endif
-
-
-#if TASKS_NUMBER>=9
-TCB_9: .byte TASK_TCB_SIZE
-#endif
-
-
-#if TASKS_NUMBER>=10
-TCB_10: .byte TASK_TCB_SIZE
-#endif
-
-
-#if TASKS_NUMBER>=11
-TCB_11: .byte TASK_TCB_SIZE
-#endif
-
-
-#if TASKS_NUMBER>=12
-TCB_12: .byte TASK_TCB_SIZE
-#endif
-
-
-#if TASKS_NUMBER>=13
-TCB_13: .byte TASK_TCB_SIZE
-#endif
-
-
-#if TASKS_NUMBER>=14
-TCB_14: .byte TASK_TCB_SIZE
-#endif
-
-
-#if TASKS_NUMBER>=15
-TCB_15: .byte TASK_TCB_SIZE
-#endif
-
-
-#if TASKS_NUMBER>=16
-TCB_16: .byte TASK_TCB_SIZE
-#endif
 .cseg
 
 #message **********************OS  VERSION " using " TASKS_NUMBER " tasks.*************************"
@@ -309,29 +224,68 @@ TCB_16: .byte TASK_TCB_SIZE
 .ENDMACRO
 
 ;----------------------------------------------------------------
+;USER MODE 
+;@USAGE:	Init Stack Pointer.Initialize RAM to 0x00 fill 
+;			Set BOOT time scoped global variables 
+;----------------------------------------------------------------
+.MACRO _BOOT
+    ;One rcall depth for the stack during system init 
+	ldi     temp,high(RAMEND-AVR_PC_SIZE)        ;Set stack pointer to bottom of RAM-(PC bytes size) for system init
+    out     SPH,temp
+    ldi     temp,low(RAMEND-AVR_PC_SIZE)
+    out     SPL,temp
+     	       			  
+;clear SRAM
+	ldi XL,low(RAMEND+1)
+	ldi XH,high(RAMEND+1)    		   
+    clr r0
+initos:
+	st -X,r0
+	cpi XH,high(SRAM_START) 
+    brne initos
+    cpi XL,low(SRAM_START)
+	brne initos
+;check system memory layout -> no static byte allocation before system memory layout
+/*
+#ifdef DEBUG
+	ldi r19,low(keMemory)
+	ldi r20,high(keMemory)
+
+	CPI16  r19,r20,temp,SRAM_START
+	breq debug_next
+	rjmp RESET     ;LOOP forever until you move program memory allocation after system memory layout
+debug_next:	 
+#endif
+*/
+;prepare task id increment register (boot time global variable)
+	clr r17
+;prepare current tasks TCB pointer (boot time global variable)
+    ldi XH,high(TCB)
+	ldi XL,low(TCB)
+.ENDMACRO
+
+;----------------------------------------------------------------
 ;USER MODE API
 ;@USAGE:	Create task and initialize its TCB and stack resources. Used during kernel boot initialization,uses any register
 ;@INPUT:
-;		@0  task label
-;		@1  task number   
-;       @2  task stack size -> it must be bigger then CPU context size
+;		@0  task label(2 or 3 bytes depends on AVR CPU)   
+;       @1  task stack size -> it must be bigger then CPU context size
 ;@WARNING:  Use r25:r24 to store current stack offset
-;			Use r23:r22:r21	for Task label address
+;			Use (r23):r22:r21	for Task label address
 ;----------------------------------------------------------------
-
-#define TCB_HIGH(i) ldi XH,high(TCB_##i)
-#define TCB_LOW(i)  ldi XL,low(TCB_##i)
-
 .MACRO  _REGISTER_TASK_STACK
-    .if @2<=TASK_STACK_CPU_CONTEXT_SIZE 
+    .if @1<=TASK_STACK_CPU_CONTEXT_SIZE 
 	  .ERROR "****************ARE YOU OK?***********************"
 	.endif
 
 ;1.Save initial return address points at Tasks' begining
 	ldi r21,low(@0)
 	ldi r22,high(@0)
-	ldi r23,byte3(@0)
 
+#ifdef AVR_3_BYTE_PC
+	ldi r23,byte3(@0)
+#endif
+	
 	mov ZL,r24
 	mov ZH,r25
 	rcall InitStack
@@ -344,47 +298,48 @@ TCB_16: .byte TASK_TCB_SIZE
 
 
     SUB16 YL,YH,r24,r25
-	sbiw YH:YL,@2-1
+	
+	SUBI16 YL,YH,(@1-1)
 
-	ldi temp,0x5A
+	ldi temp,DEBUG_MARKER
 	st Y,temp
 #endif
-;2.Set stack pointer to stacks TCB 
-	TCB_HIGH(@1)
-	TCB_LOW(@1)
+;2.Set stack pointer to tasks stack TCB 	
 
 	mov ZL,r24
 	mov ZH,r25
 
 	adiw ZH:ZL,TASK_STACK_CPU_CONTEXT_SIZE
-    
-	ldi r17,(@1-1)
+ 
 	rcall InitTCB
-
+	;increment ID number for next task
+	inc r17
+	;increment to next tasks TCB (X is incremented 2 times during store/write)
+	adiw XH:XL,TASK_TCB_SIZE-2
+	
 	;increase offset to next free position
-	adiw r25:r24,@2
+	ADDI16 r24,r25,@1
 .ENDMACRO
 ;----------------------------------------------------------------
 ;USER MODE API
 ;@USAGE:	Create task and initialize its TCB and stack resources.Uses default stack size per task. Used during kernel boot initialization,uses any register
-;@INPUT:	@0  task label(3 bytes)
-;			@1  task number   
+;@INPUT:	@0  task label(2 or 3 bytes depends on AVR CPU)
 ;@USAGE:  Use r25:r24 to store current stack offset
-;		  Use r23:r22:r21	for Task label address		
+;		  Use (r23):r22:r21	for Task label address		
 ;----------------------------------------------------------------
 .MACRO  _REGISTER_TASK
 ;1.Save initial return address points at Tasks' begining
 	ldi r21,low(@0)
 	ldi r22,high(@0)
+#ifdef AVR_3_BYTE_PC 
 	ldi r23,byte3(@0)
+#endif
 
 	mov ZL,r24
 	mov ZH,r25
 	rcall InitStack
 
-	;ldi ZL,low((@1-1)*TASK_STACK_DEPTH)
-	;ldi ZH,high((@1-1)*TASK_STACK_DEPTH)
-	;rcall InitStack 
+	
 ;3.DEBUG marker form RAM layout defragmentation(marks end of tasks stack)
 
 #ifdef DEBUG
@@ -396,40 +351,31 @@ TCB_16: .byte TASK_TCB_SIZE
     SUB16 YL,YH,r24,r25
 	sbiw YH:YL,TASK_STACK_SIZE-1
 
-	ldi temp,0x5A
+	ldi temp,DEBUG_MARKER
 	st Y,temp
 #endif 
 
 
 ;2.Set stack pointer to stacks TCB
-    ;ldi XL,low(@2)
-	;ldi XH,high(@2)    
-
-	
-	;ldi ZL,low(((@1-1)*TASK_STACK_DEPTH)+TASK_STACK_REGISTER_DEPTH)
-	;ldi ZH,high(((@1-1)*TASK_STACK_DEPTH)+TASK_STACK_REGISTER_DEPTH)
-    
-	;ldi r17,(@1-1)
-	;rcall InitTCB
-
-
-	TCB_HIGH(@1)
-	TCB_LOW(@1)
-
 	mov ZL,r24
 	mov ZH,r25
 
 	adiw ZH:ZL,TASK_STACK_CPU_CONTEXT_SIZE
     
-	ldi r17,(@1-1)
 	rcall InitTCB
+	;increment ID number for next task
+	inc r17
+	;increment to next tasks TCB (X is incremented 2 times during store/write)
+	adiw XH:XL,TASK_TCB_SIZE-2
+	
 	;increase offset to next free position using defaul task stack size
 	adiw r25:r24,TASK_STACK_SIZE
+
 .ENDMACRO 
 
 ;----------------------------------------------------------
-;Internal private use only
-;@INPUT: X(r12:r11:r10) task label
+;Internal private kernel use only
+;@INPUT: (r21:r22:r23) task label
 ;        Z initial tasks stack offset
 ;----------------------------------------------------------    
 InitStack:
@@ -443,8 +389,10 @@ InitStack:
 ;save inital return address to task begining
 	
 	st  Y,r21	
-	st -Y,r22    
+	st -Y,r22
+#ifdef AVR_3_BYTE_PC 	    
 	st -Y,r23
+#endif
 ret
 
 ;----------------------------------------------------------
@@ -460,14 +408,13 @@ InitTCB:
 	ldi temp,high(RAMEND)
 	mov YH,temp
 ;initial stack pointer position
-    SUB16 YL,YH,ZL,ZH
-    
-	;mov r0,YL
-	st X+,YL
-	;mov r0,YH
+    SUB16 YL,YH,ZL,ZH   
+
+;set tasks stack address	
+	st X+,YL	
 	st X+,YH  
+	
 ;set task ID
-    ;ldi temp,@1     ;set task's ID
 	st X,r17 
 ret
 
@@ -602,8 +549,8 @@ end:
 	push YL
 	push YH 
 
-	ldi YL,low(TCB_1)        
-    ldi YH,high(TCB_1)
+	ldi YL,low(TCB)        
+    ldi YH,high(TCB)
 
 loop:
     ldd temp,Y+3
@@ -612,7 +559,7 @@ loop:
     dec temp
     std Y+3,temp    
 skip:	   
-	cpi YL,low(TCB_1+(TASK_TCB_SIZE*(TASKS_NUMBER-1)))      
+	cpi YL,low(TCB+(TASK_TCB_SIZE*(TASKS_NUMBER-1)))      
     breq end
 
 	adiw YH:YL,TASK_TCB_SIZE
@@ -688,149 +635,8 @@ end:
 ;USED: XL,XH
 ;----------------------------------------------------------------
 .MACRO CALCULATE_TARGET_TCB_OFFSET
-	ldi XL,low((TCB_1+@0)+@1)
-	ldi XH,high((TCB_1+@0)+@1)
-.ENDMACRO
-
-;*******************EVENT*************************************
-;Event system for up to 8 events kept in EVENT_STATE RAM byte.Requires 1 bit per event.
-;use event #{0-7} to identify the event.
-;set 1 to event # to tell the rest,the event happened
-;set 0 to event # to clear event
-;Notification type of event - one task waits on it while many other tasks could signal(awaken) it. 
-;It is possible to lose signal if many tasks signal the event
-
-;----------------------------------------------------------------
-;KERNEL AND USER MODE API
-;INPUT: @0 - event #
-;       @1 - context{0=task;0xFF=interrupt}
-;USAGE: temp(saved on current task stack)
-;----------------------------------------------------------------
-.MACRO  _EVENT_SET 
-    .IF @1==TASK_CONTEXT   ;no interrupt is possible if in interrupt sei is NOT used
-    cli
-	.ENDIF
-	
-    push temp
-	
-	lds temp,EVENTS_STATE
-	sbr temp,1<<@0
-
-
-	sts EVENTS_STATE,temp
-	
-	pop temp
-
-	.IF @1==TASK_CONTEXT  ;no interrupt is possible if in interrupt sei is NOT used
-	sei
-	.ENDIF
-.ENDMACRO
-
-
-;----------------------------------------------------------------
-;USER MODE API
-;Used in the context of a thread only!
-;Wait indefinitly on an event.
-;Auto reset event.
-;INPUT: @0 - event #
-;USAGE: temp(saved on current task stack)
-;WARNING:  A new signal from onather task could come (if more then one task notifies the waiting task) between 
-;          code points 1 and 2! The second signal will be swallowed up so mind this when more then one task notifies the waiting task!
-;----------------------------------------------------------------           
-.MACRO _EVENT_WAIT
-    push temp
-
-mloop:
-	cli
-	lds temp,EVENTS_STATE
-	sbrc temp,@0
-	rjmp event_is_set
-	sei
-	_YIELD_TASK
-	rjmp mloop
-
-event_is_set:               ;1  - a signal has come 
-	cbr temp,1<<@0
-
-	sts EVENTS_STATE,temp
-	sei
-	
-	pop temp                  
-.ENDMACRO
-
-;----------------------------------------------------------------
-;USER MODE API
-;Used in the context of a thread only!
-;Manual reset event.
-;INPUT: @0 - event #
-;USAGE: temp(saved on current task stack)
-;----------------------------------------------------------------
-.MACRO _EVENT_RESET
-	push temp
-	cli
-	lds temp,EVENTS_STATE
-	cbr temp,1<<@0
-	sts EVENTS_STATE,temp
-	sei
-	pop temp
-.ENDMACRO
-;CHANGED**********************MUTEX*********************************
-;It is more like a LOCK then MUTEX.
-;A mutex object is a synchronization object whose state is set to signaled when it is not owned by any task, and nonsignaled when it is owned.
-;Initial state is signaled - not owned by any task
-;Wait for a mutex until it gets signaled.{0->signaled;
-;                                          1->not signal}
-;Up to 8 different mutexes could be defined in the static MUTEX_STATE byte.
-
-
-;USER MODE API 
-;		Set the flag to not signaled on entering the guarded section.
-;		called in the context of a thread to mark the BEGIN of the protected code section.
-;INPUT: @0 - mutex #
-;USAGE: temp(saved on current task stack)
-
-.MACRO   _MUTEX_WAIT
-	push temp   
-
-mloop:
-	cli
-   	lds temp,MUTEX_STATE
-	sbrs temp,@0
-	rjmp mutex_is_signaled
-	sei
-	_YIELD_TASK
-    rjmp mloop 
-mutex_is_signaled:
-
-;set  MUTEX to not signaled    
-	lds temp,MUTEX_STATE
-	set
-	bld temp,@0
-	sts MUTEX_STATE,temp	
-	sei	
-
-	pop temp
-.ENDMACRO
-;----------------------------------------------------------------
-;USER MODE API 
-;		Set the flag to signaled on exiting the guarded section.
-;		called in the context of a thread after the call to _MUTEX_WAIT to mark the END of the protected code section.
-;INPUT: @0 - mutex #
-;USAGE: temp(saved on current task stack)
-;----------------------------------------------------------------
-.MACRO   _MUTEX_RELEASE
-	cli						;write-protect MUTEXT_STATE byte!	
-	
-	push temp 	
-
-	lds temp,MUTEX_STATE
-	clt
-	bld temp,@0
-	sts MUTEX_STATE,temp
-	
-	pop temp	
-
-	sei
+	ldi XL,low((TCB+@0)+@1)
+	ldi XH,high((TCB+@0)+@1)
 .ENDMACRO
 
 ;per CPU register
@@ -879,7 +685,27 @@ CPU: .byte 1
 switch_task_on:
 _POST_INTERRUPT
 .ENDMACRO
+;----------------------------------------------------------------
+;KERNEL MODE API
+;Start the task schedular
+							   
+;@WARNING: Platform dependent in regard to Timer being used for scheduling
+;----------------------------------------------------------------
+.MACRO _START_SCHEDULAR
+;set up Timer0
+    _INIT_TASKSHEDUAL_TIMER
 
+
+;start Timer0(Schedualing)	
+	_ENABLE_TASKSHEDUAL_TIMER
+
+;initialize current task pointer with Task #1
+    ldi YL,low(SRAM_START+1) 		
+	sts pxCurrentTCB,YL
+	
+	_keOS_RESTORE_CONTEXT
+	reti
+.ENDMACRO
 ;----------------------------------------------------------------
 ;KERNEL MODE API
 ;Context switch from one task to another.
@@ -906,7 +732,7 @@ loop:
 	lsl temp
 	brcc loop
 	
-	ldi YH,high(TCB_1)   ;possible if all TCB structures reside within same 256 RAM page
+	ldi YH,high(TCB)   ;possible if all TCB structures reside within same 256 RAM page
 	ld YL,X 
     
 	;there is an interrupt but task to dispatch to is in sleep -> waik it up!	 
@@ -925,8 +751,8 @@ la:
 
 	cpi YL,TCB_MAX_SIZE     
 	brne lab
-	ldi YL, low(TCB_1)
-	ldi YH, high(TCB_1)	
+	ldi YL, low(TCB)
+	ldi YH, high(TCB)	
 lab:
 	ldd temp,Y+2
 	sbrc temp,TASK_SCHEDULABLE_BIT
@@ -963,8 +789,15 @@ It is a good practise to disable the respective interrupt source during the curr
 ;----------------------------------------------------------------
 
 .MACRO _INTERRUPT_DISPATCHER_INIT
+    #ifdef DEBUG
+	.if (7-@1) > (IDT_SIZE-1) 
+		.error "ITD size is too small to accomodate requested lavel. Increase the size."
+	.endif
+	#endif
+
 	lds @0,pxCurrentTCB
 	sts IDT+(7-@1),@0    
+	
 .ENDMACRO
 
 ;----------------------------------------------------------------
@@ -1139,14 +972,20 @@ N. Task ID
 
 InterruptDispatchFlag:           .byte 1 ;up to 8 interrupt processing tasks
 
-IDT:   							 .byte 8
+IDT:   							 .byte IDT_SIZE
 
+#ifdef EVENT
+.include "kernel/event.inc"
 EVENTS_STATE: .byte 1           ;up to 8 events applic;ation wide
+#endif
 
+#ifdef MUTEX
+.include "kernel/mutex.inc"
 MUTEX_STATE: .byte 1            ;up to 8 mutexes application wide 
+#endif
 
 #ifdef THRESHOLD_BARRIER_EXTENTION
-.include "ThresholdBarrier.inc" 
+.include "kernel/threshold-barrier.inc" 
 ;BARRIER straucture
 ; ________________
 ;|y|-|-|-|x|x|x|x|

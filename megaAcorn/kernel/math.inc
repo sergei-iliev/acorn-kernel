@@ -103,3 +103,52 @@
 ;Expected result is Z=1, C=
 
 
+;@MACRO LSL16 MSB,LSB
+.MACRO LSL16
+ lsl @1
+ rol @0
+.ENDMACRO
+
+/*
+32 - bit arithmetic 
+*/
+
+.MACRO	LDI32				;load ACCT register with imediate value long
+		ldi	@0,low(lwrd(@4))
+		ldi	@1,high(lwrd(@4))
+		ldi	@2,low(hwrd(@4))
+		ldi	@3,high(hwrd(@4))
+.ENDMACRO
+
+/*
+  SUB INTEGER IMEDIATE TO REGISTER PAIR LONG
+*/
+.MACRO	SUBI32
+	subi	@0,low(lwrd(@4))
+	sbci	@1,high(lwrd(@4))
+	sbci	@2,low(hwrd(@4))
+	sbci	@3,high(hwrd(@4))
+.ENDMACRO
+
+/*
+ ADD INTEGER IMEDIATE TO REGISTER PAIR LONG
+*/
+.MACRO	ADDI32
+	subi	@0,low(lwrd(-(@4)))
+	sbci	@1,high(lwrd(-(@4)))
+	sbci	@2,low(hwrd(-(@4)))
+	sbci	@3,high(hwrd(-(@4)))
+.ENDMACRO
+
+/*
+ COMPARE ACC IMEDIATE TO LONG
+*/
+.MACRO	CPI32
+	cpi	@0,low(lwrd(@5))
+	ldi	@4,high(lwrd(@5))
+	cpc	@1,@4
+	ldi	@4,low(hwrd(@5))
+	cpc	@2,@4
+	ldi	@4,high(hwrd(@5))
+	cpc	@3,@4
+.ENDMACRO
