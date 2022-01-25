@@ -1,7 +1,7 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 
-![Acorn kernel](screenshots/logo.jpg)
+[![Acorn kernel](screenshots/logo.jpg)](http://www.acorn-kernel.net)
 
 ##### The main objective behind Acorn kernel is creating an open source, small, robust and reliable micro kernel RTOS for 8bit Atmel AVR microprocessors written entirely in Assembler. 
 ##### The kernel by itself is a static preemptive operating system which basically means:
