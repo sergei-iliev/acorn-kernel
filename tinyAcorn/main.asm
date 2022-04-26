@@ -10,7 +10,7 @@
 .cseg
 .include "tasks.asm"
 
-; Replace with your application code
+
 RESET:
 	_keBOOT
     
