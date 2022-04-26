@@ -3,9 +3,11 @@
 .ORG        0x00  
 	 rjmp    RESET      ;OS entry point
 
-;.ORG INT0addr
-;    rjmp int0INT
-	 
+.ORG INT0addr
+    rjmp int0INT
+
+.ORG INT1addr
+    rjmp int1INT	 
 ;.ORG PCI0addr
 ;    rjmp PCIInt
 

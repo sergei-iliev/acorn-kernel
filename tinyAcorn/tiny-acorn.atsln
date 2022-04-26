@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 11.00
 # Atmel Studio Solution File, Format Version 11.00
-Project("{18226A42-8477-4023-8AD2-40C49DA407C9}") = "256bit micro kernel", "kernel.asmproj", "{6228A3FD-9B15-4BE5-B846-7E2DF5E56679}"
+Project("{18226A42-8477-4023-8AD2-40C49DA407C9}") = "TinyAcorn", "tiny-acorn.asmproj", "{6228A3FD-9B15-4BE5-B846-7E2DF5E56679}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
