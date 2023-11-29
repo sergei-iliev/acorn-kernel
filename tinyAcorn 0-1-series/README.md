@@ -1,1 +1,1 @@
-#####  tinyAVR® 1-series tinyAcorn micro kernel v1.0 ROCKS
+#####  tinyAVR® 0/1-series micro kernel v1.0 ROCKS
