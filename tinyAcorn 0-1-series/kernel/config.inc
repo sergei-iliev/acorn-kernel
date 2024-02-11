@@ -18,6 +18,7 @@ Stack Pointer register size
 #ifdef AVR_1_BYTE_SP
 	#define TASK_TCB_SIZE 3			; 1 byte stack pointer
 	/*
+	Define your task number here in case of 1 byte SP
 	Maximum allowed is 3
 	*/
 	#define TASKS_NUMBER 3			; 1 - 3 tasks
@@ -36,6 +37,7 @@ Stack Pointer register size
 		#define TASK_TCB_SIZE 4			; 2 byte stack pointer 
     #endif
 	/*
+	Define your task number here in case of 2 byte SP
 	Maximum allowed is 6
 	*/
 	#define TASKS_NUMBER 4			; 1 - 6 tasks
@@ -56,8 +58,14 @@ MUST be bigger then TASK_STACK_CPU_CONTEXT_SIZE
 /*
 Enable sleep mode 
 */
-;#define SLEEP_MODE
-
+#define SLEEP_MODE
+#ifdef SLEEP_MODE
+/*
+Define the maximum number to participate in SLEEP sequence
+These are the  tasks which will invoke _SLEEP_TASK macro
+*/
+ #define SLEEP_TASKS_REQUEST_NUMBER 2
+#endif
 /*
 Define Synchronization macros if needed.
 */
@@ -83,7 +91,7 @@ Define Synchronization macros if needed.
 
 #define SET_STACK_TO_KNOWN_VALUE TRUE
 ;Comment out in production mode!!!!!!!!!!!!!!!!!!!!!!
-#define DEBUG TRUE
+;#define DEBUG TRUE
 
 #define DEBUG_MARKER 0x5A
 

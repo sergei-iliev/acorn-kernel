@@ -15,7 +15,7 @@
 RESET:    
 	_keBOOT
 		
-	_REGISTER_TASK_STACK Task_1,60 
+	_REGISTER_TASK_STACK button_press_task,60 
 	_REGISTER_TASK_STACK Task_2,60 
 	_REGISTER_TASK_STACK usart_task,50
 	_REGISTER_TASK_STACK rtc_task,50

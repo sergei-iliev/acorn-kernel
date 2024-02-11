@@ -33,10 +33,6 @@ wait_rx:
 	rcall usart_send
 */    
 	
-	;***works
-	;ldi argument,0xAA
-	;rcall usart_send
-	;_SLEEP_TASK_EXT 0xFFFF
 
 	_INTERRUPT_WAIT USART_TASK_ID
 	mov argument,global_byte
@@ -103,10 +99,7 @@ usart_init:
   ori temp, USART_TXEN_bm | USART_RXEN_bm
   sts USART0_CTRLB,temp
 
-  //enable Rx interrupt
-  lds temp,USART0_CTRLA
-  ori temp,USART_RXCIE_bm
-  sts USART0_CTRLA,temp
+  rcall enable_uart
   ;8N1
   //lds temp,USART0_CTRLC
   //ori temp,USART_CMODE_ASYNCHRONOUS_gc 
@@ -118,7 +111,19 @@ usart_init:
   sei
 ret
 
+enable_uart:
+//enable Rx interrupt
+  lds temp,USART0_CTRLA
+  ori temp,USART_RXCIE_bm
+  sts USART0_CTRLA,temp
+ret
 
+disable_uart:
+  lds temp,USART0_CTRLA
+  cbr temp,1<<USART_RXCIE_bp
+  sts USART0_CTRLA,temp
+
+ret
 
 USART0_RXC_Intr:
 _PRE_INTERRUPT

@@ -17,7 +17,7 @@ sergei_iliev@yahoo.com
 
 #define OS TINYACORN_S-0-1
 
-#define VERSION 1.0
+#define VERSION 1.1
 
 #define HIGH_RAM_ADDRESS high(SRAM_START)
 
@@ -691,7 +691,7 @@ switch_task_on:
 
 
 ;start Timer0(Schedualing)	
-	_ENABLE_TASKSHEDUAL_TIMER
+	_ENABLE_TASKSHEDUAL_TIMER temp
 
 ;initialize current task pointer with Task #1
     ldi YL,low(TCB) 		
@@ -767,7 +767,8 @@ The portion of code confined within these 2 macros is executed in DEVICE priorit
 A task executes at DEVICE level until it volantarily exits it through _INTERRUPT_END macro. 
 It is a good practise to disable the respective interrupt source during the current interrupt processing. 
 Instead of Interrupt Dispatch Table a simple no RAM storage is used for Task to dispatch designation - Task Id 
-Each task has an Id in TCB array so its Id value is used - 1 based indexing 
+Each task has an Id in TCB array when registered during boot sequence so its Id value is used - 1 based indexing 
+
 @WARNING:looping forever between _INTERRUPT_WAIT and _INTERRUPT_END(while in DEVICE level) will break the kernel!
 */
 
@@ -1006,7 +1007,7 @@ demolatch:         .byte 1
 SLEEP mode
 */
 #ifdef SLEEP_MODE
-.include "SLEEP.inc"
+.include "kernel/sleep.inc"
 #endif
 
 .EXIT

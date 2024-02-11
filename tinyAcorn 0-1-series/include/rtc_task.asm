@@ -9,6 +9,8 @@ rtc_task:
   sts PORTB_DIR,temp
 
 	_THRESHOLD_BARRIER_WAIT InitTasksBarrier,TASKS_NUMBER
+
+
 rtc_main:
 
   _INTERRUPT_WAIT RTC_TASK_ID
@@ -29,6 +31,9 @@ rtc_led_on:
 	sts PORTB_OUT,temp
 rtc_end_00:
   _INTERRUPT_END RTC_TASK_ID
+
+  ;is sleep requested
+  	_SLEEP_CPU_TASK disable_rtc,enable_rtc,temp
 rjmp rtc_main
 
 
@@ -65,6 +70,15 @@ loop_rtc_0:
 
 ret
 
+enable_rtc:
+ ori temp,RTC_PERIOD_OFF_gc | 1 << RTC_PITEN_bp; /* Enable: enabled */
+ sts RTC_PITCTRLA,temp
+ret
+
+disable_rtc:
+ cbr temp, 1 << RTC_PITEN_bp; /* disable */
+ sts RTC_PITCTRLA,temp
+ret
 
 RTC_PIT_Intr:
 _PRE_INTERRUPT
