@@ -1,1 +1,1 @@
-##### megaAcorn micro kernel  v3.1 ROCKS  
+##### mega-acorn® micro kernel  v3.1 ROCKS  
