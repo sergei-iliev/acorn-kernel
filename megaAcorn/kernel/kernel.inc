@@ -17,7 +17,7 @@ sergei_iliev@yahoo.com
 */
 #define OS MEGAACORN
 
-#define VERSION 3.0
+#define VERSION 3.1
 
 #define HIGH_RAM_ADDRESS high(SRAM_START)
 
@@ -53,14 +53,6 @@ Define PC bytes size
 #define TCB_MAX_SIZE   low(SRAM_START+1+(TASKS_NUMBER*TASK_TCB_SIZE))
 
 
-/*
-Enable sleep mode 
-*/
-;#define SLEEP_MODE
-;.EQU CONS_TIMER_COMPARE=((SYSTEM_CLOCK/8)/(1000000/SYSTEM_TICK))   ;devider =8
-
-.EQU CONS_TIMER_COMPARE=57000
-
 .EQU TASK_TCB_SIZE=4   ;TCB size is see below
 
 ;Compared to previous release - Task ID as added, which implies 16 tasks max
@@ -83,28 +75,24 @@ Enable sleep mode
 ;***Disbale enabel task scheduling in CPU data byte structure bit
 .SET CPU_SCHEDULE_BIT=7
 
-;***wait state related
-.EQU TASK_WAIT_ON=1
-.EQU TASK_WAIT_OFF=0
 
 ;is task shedulable runnable bit
 .SET TASK_SCHEDULABLE_BIT=6
-
-
 ;***runable state related
 .EQU TASK_SCHEDULABLE_ON=0
 .EQU TASK_SCHEDULABLE_OFF=1
 
 
+.SET TASK_SCHEDULABLE_BIT=7
+;***wait state related
+.EQU TASK_WAIT_ON=1
+.EQU TASK_WAIT_OFF=0
+
+
+
 .SET TASK_CONTEXT=0x00
-
 .SET INTERRUPT_CONTEXT=0xFF
-
-/*
-MUST be bigger then TASK_STACK_CPU_CONTEXT_SIZE
-*/
-
-.EQU TASK_STACK_SIZE=62  
+ 
 
 /*
 TASK_STACK_CPU_CONTEXT_SIZE=36(32reg+SREG+PC(3 bytes) Return address)   ;3 bytes PC
@@ -112,6 +100,9 @@ TASK_STACK_CPU_CONTEXT_SIZE=35(32reg+SREG+PC(2 bytes) Return address)	;2 bytes P
 */
 .EQU TASK_STACK_CPU_CONTEXT_SIZE=32+1+AVR_PC_SIZE
 
+.IF TASK_STACK_SIZE<=TASK_STACK_CPU_CONTEXT_SIZE
+	.error "Tasks stack size must be bigger then stack size needed for its context storage"
+.ENDIF
 /*
 ;Not all devicess start from 0x060 , at90USB starts from 0x100 for example
 ;I will personally come to your place and flog you if you change the 
@@ -228,7 +219,7 @@ TCB: .byte TASK_TCB_SIZE*TASKS_NUMBER
 ;@USAGE:	Init Stack Pointer.Initialize RAM to 0x00 fill 
 ;			Set BOOT time scoped global variables 
 ;----------------------------------------------------------------
-.MACRO _BOOT
+.MACRO _keBOOT
     ;One rcall depth for the stack during system init 
 	ldi     temp,high(RAMEND-AVR_PC_SIZE)        ;Set stack pointer to bottom of RAM-(PC bytes size) for system init
     out     SPH,temp
@@ -290,7 +281,7 @@ debug_next:
 	mov ZH,r25
 	rcall InitStack
 
-#ifdef DEBUG
+#if DEBUG && SET_STACK_TO_KNOWN_VALUE
     ldi temp,low(RAMEND)
 	mov YL,temp
 	ldi temp,high(RAMEND)
@@ -299,10 +290,17 @@ debug_next:
 
     SUB16 YL,YH,r24,r25
 	
-	SUBI16 YL,YH,(@1-1)
-
+	//SUBI16 YL,YH,(@1-1)
+	sbiw YH:YL,AVR_PC_SIZE-1	;don't override return address 
 	ldi temp,DEBUG_MARKER
+	ldi r18,@1-AVR_PC_SIZE
+rts_loop:	
+	sbiw YH:YL,1
 	st Y,temp
+	dec r18
+	tst r18
+	brne rts_loop
+	
 #endif
 ;2.Set stack pointer to tasks stack TCB 	
 
@@ -342,17 +340,26 @@ debug_next:
 	
 ;3.DEBUG marker form RAM layout defragmentation(marks end of tasks stack)
 
-#ifdef DEBUG
+#if DEBUG && SET_STACK_TO_KNOWN_VALUE
 	ldi temp,low(RAMEND)
 	mov YL,temp
 	ldi temp,high(RAMEND)
 	mov YH,temp
 
     SUB16 YL,YH,r24,r25
-	sbiw YH:YL,TASK_STACK_SIZE-1
+	
+	//sbiw YH:YL,TASK_STACK_SIZE-1
 
+    sbiw YH:YL,AVR_PC_SIZE-1	;don't override return address 
 	ldi temp,DEBUG_MARKER
+	ldi r18,TASK_STACK_SIZE-AVR_PC_SIZE
+rt_loop:	
+	sbiw YH:YL,1
 	st Y,temp
+	dec r18
+	tst r18
+	brne rt_loop
+		
 #endif 
 
 
@@ -767,9 +774,10 @@ end:
 ;**********************INTERRUPT PROCESSOR***************************
 /*
 What is interrupt Processing Task - a task dedicated to processing an interrupt.
-The task uses 2 APIs:
-   1._INTERRUPT_WAIT - waits on interrupt that will come from an interrupt dispatch.
-   2._INTERRUPT_END  - called at the end of the task.It lowers the task priority level and makes 
+The task uses 3 APIs:
+   1._INTERRUPT_DISPATCHER_INIT -initialize Interrupt Dispatcher entry point in IDT table, executed once during task init section
+   2._INTERRUPT_WAIT - waits on interrupt that will come from an interrupt dispatch.
+   3._INTERRUPT_END  - called at the end of the task.It lowers the task priority level and makes 
                        the task schedulable so it can continue to execute at PASSIVE level. 
 The portion of code confined within these 2 macros is executed in DEVICE priority level.
 A task executes at DEVICE level until it volantarily exits it through _INTERRUPT_END macro. 
@@ -779,10 +787,9 @@ It is a good practise to disable the respective interrupt source during the curr
 
 ;----------------------------------------------------------------
 ;USER MODE API
-;Registers the calling task with Interrupt Dispatcher.
+;Registers the calling task with Interrupt Dispatcher thus making portions of tasks's code executable at higher DEVICE priority level
 ;Makes the calling task - interrupt handling one.
-;Must be called in the INIT part of the task while the interrupt 
-;source is still disabled.
+;Must be called in the INIT part of the task while the interrupt source is still disabled.
 ;INPUT:
 ;        @0 - temp register,
 ;        @1 - interrupt dispatch priority index(7/highest/ through 0/lowest/)
@@ -1000,7 +1007,7 @@ InitTasksBarrier:   .byte 1
 Extended Event system definition
 */
 #ifdef EVENT_EXTENTION
-.include "EventExt.inc"  
+.include "kernel/event-ext.inc" 
 ;Extended event straucture
 ; ________________
 ;|y|-|-|-|v|v|v|v|
@@ -1021,7 +1028,7 @@ GUI_EVENT:           .byte 2
 Lock synchronization definition
 */
 #ifdef LOCK_EXTENTION
-.include "Lock.inc"
+.include "kernel/lock.inc"
 
 datalock:            .byte 2
 
@@ -1031,7 +1038,7 @@ datalock:            .byte 2
 Cyclic Barrier synchronization definition 
 */
 #ifdef CYCLIC_BARRIER_EXTENTION
-.include "CyclicBarrier.inc"
+.include "kernel/cyclic-barrier.inc"
 
 demobarrier:         .byte 1
 
@@ -1041,7 +1048,7 @@ demobarrier:         .byte 1
 Latch synchronization definition 
 */
 #ifdef LATCH_EXTENTION
-.include "CountDownLatch.inc"
+.include "kernel/count-down-latch.inc"
 
 demolatch:         .byte 1
 

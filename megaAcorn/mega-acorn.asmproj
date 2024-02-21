@@ -60,30 +60,34 @@
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <ToolchainSettings>
       <AvrAssembler>
-        <avrasm.assembler.general.AdditionalIncludeDirectories>
-          <ListValues>
-            <Value>%24(PackRepoDir)\atmel\ATmega_DFP\1.2.209\avrasm\inc</Value>
-          </ListValues>
-        </avrasm.assembler.general.AdditionalIncludeDirectories>
-        <avrasm.assembler.general.IncludeFile>m328pdef.inc</avrasm.assembler.general.IncludeFile>
-      </AvrAssembler>
+  <avrasm.assembler.general.GenerateEEPFile>True</avrasm.assembler.general.GenerateEEPFile>
+  <avrasm.assembler.general.AdditionalIncludeDirectories>
+    <ListValues>
+      <Value>%24(PackRepoDir)\atmel\ATmega_DFP\1.2.209\avrasm\inc</Value>
+    </ListValues>
+  </avrasm.assembler.general.AdditionalIncludeDirectories>
+  <avrasm.assembler.general.IncludeFile>m328pdef.inc</avrasm.assembler.general.IncludeFile>
+</AvrAssembler>
     </ToolchainSettings>
     <OutputType>Executable</OutputType>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
     <ToolchainSettings>
       <AvrAssembler>
-        <avrasm.assembler.general.AdditionalIncludeDirectories>
-          <ListValues>
-            <Value>%24(PackRepoDir)\atmel\ATmega_DFP\1.2.209\avrasm\inc</Value>
-          </ListValues>
-        </avrasm.assembler.general.AdditionalIncludeDirectories>
-        <avrasm.assembler.general.IncludeFile>m328pdef.inc</avrasm.assembler.general.IncludeFile>
-      </AvrAssembler>
+  <avrasm.assembler.general.AdditionalIncludeDirectories>
+    <ListValues>
+      <Value>%24(PackRepoDir)\atmel\ATmega_DFP\1.2.209\avrasm\inc</Value>
+    </ListValues>
+  </avrasm.assembler.general.AdditionalIncludeDirectories>
+  <avrasm.assembler.general.IncludeFile>m328pdef.inc</avrasm.assembler.general.IncludeFile>
+</AvrAssembler>
     </ToolchainSettings>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="main.asm">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="tasks.asm">
       <SubType>Code</SubType>
     </Compile>
   </ItemGroup>

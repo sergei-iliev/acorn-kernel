@@ -17,6 +17,10 @@
 	sbci @1,high(@2)
 .ENDMACRO 
 
+.MACRO LDI16 
+   ldi	@0,low(@2)
+   ldi	@1,high(@2)
+.ENDMACRO
 ;***************************************************************************
 ;* 
 ;* "sub16" - Subtracting 16-bit registers 
@@ -141,6 +145,19 @@
 .ENDMACRO
 
 /*
+ ADD UNSIGNED LSB->MSB
+ 32+32 Bit Unsigned Addition
+*/
+
+.MACRO	ADD32
+	add		@0,@4
+	adc		@1,@5
+	adc		@2,@6
+	adc		@3,@7
+.ENDMACRO
+
+
+/*
  COMPARE ACC IMEDIATE TO LONG
 */
 .MACRO	CPI32
@@ -151,4 +168,14 @@
 	cpc	@2,@4
 	ldi	@4,high(hwrd(@5))
 	cpc	@3,@4
+.ENDMACRO
+
+/*
+LOGICAL SHIFT RIGHT LSB->MSB
+*/
+.MACRO LSR32
+	lsr @3
+	ror @2
+	ror @1
+	ror @0
 .ENDMACRO

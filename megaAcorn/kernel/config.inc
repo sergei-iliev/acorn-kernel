@@ -6,7 +6,7 @@ Define the frequency value the CPU is running at
 /*
 *Define the number of tasks. Up to 16 for X and Mega kernel 
 */
-#define TASKS_NUMBER 6
+#define TASKS_NUMBER 3
 
 /*
 Program Counter register size (2 or 3 bytes)
@@ -16,9 +16,23 @@ Program Counter register size (2 or 3 bytes)
 #define AVR_2_BYTE_PC    
 
 /*
+Default stack size per task.
+It is used when default _REGISTER_TASK task registration API is used
+MUST be bigger then TASK_STACK_CPU_CONTEXT_SIZE
+*/
+.EQU TASK_STACK_SIZE=63
+
+/*
 Interrupt Dispatch Table size - up to 8  (8 tasks max to handle Interrupt Dispatches)
 */
-#define IDT_SIZE   2
+#define IDT_SIZE   8
+
+#define SET_STACK_TO_KNOWN_VALUE FALSE
+/*
+Enable sleep mode 
+*/
+;#define SLEEP_MODE
+
 /*
 Define Synchronization macros if needed.
 */
@@ -43,7 +57,7 @@ Define Synchronization macros if needed.
 ;#define MUTEX
 
 ;Comment out in production mode!!!!!!!!!!!!!!!!!!!!!!
-#define DEBUG 
+#define DEBUG TRUE
 
 #define DEBUG_MARKER 0x5A
 

@@ -38,4 +38,7 @@ in the interrupt handler as it is.
 
 ;.ORG OVF5addr
 ;     jmp Timer5OverflowInt 
+
+.ORG SPIaddr
+   jmp SPIComplete
 .EXIT 

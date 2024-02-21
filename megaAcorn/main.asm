@@ -1,27 +1,20 @@
-
-.include "m328Pdef.inc"
-;.include "m2560def.inc"
 .include "kernel/interrupt.inc" 
 .include "kernel/kernel.inc"
-
 .include "kernel/hardware.inc"
 
+
+.include "tasks.asm"
 .cseg
 RESET:	
 
-	_BOOT
+	_keBOOT
 
-	_REGISTER_TASK System_Task
+	_REGISTER_TASK task1,163
 
-	_REGISTER_TASK_STACK Task_2,100  
+	_REGISTER_TASK task2,100
 
-	_REGISTER_TASK_STACK Task_3,100  
-
-	_REGISTER_TASK Task_4  
-
-	_REGISTER_TASK_STACK Task_5,124  
-
-	_REGISTER_TASK Task_6
+	_REGISTER_TASK task3,100
+	//_REGISTER_TASK_STACK Task_2,100  
 
 	//_REGISTER_TASK rs232_ch1_task  
 
@@ -39,10 +32,8 @@ RESET:
 
 ;initialize current task pointer with Task #1
 	_START_SCHEDULAR
-	  
 
-;.include "include/mega2560/tasks.asm"
-.include "D:\SILIEVPC\Atmel\megaAcorn_3.0\mega-acorn\tasks.asm"
+
 
 DispatchDPCExtension:
 
@@ -72,9 +63,5 @@ SystemTickInt:
 rjmp TaskSchedular
 
 
-;.dseg
-;stacksize: .byte TASK_STACK_DEPTH*TASKS_NUMBER 
-;.cseg
-
-
 .EXIT
+
