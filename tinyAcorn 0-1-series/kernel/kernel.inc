@@ -17,7 +17,7 @@ sergei_iliev@yahoo.com
 
 #define OS TINYACORN_S-0-1
 
-#define VERSION 1.1
+#define VERSION 1.2
 
 #define HIGH_RAM_ADDRESS high(SRAM_START)
 
@@ -58,7 +58,7 @@ sergei_iliev@yahoo.com
 ;7bit->Task wait state(0-Normal state,1-timeout waiting)
 ;0-3bit-> Task ID number(up to 16 tasks)
 ;-----------------------
-;3.Sleep Timeout - controled by schedular
+;3-4 byte Sleep Timeout - controled by schedular
 ;-----------------------;
 
 ;***Disbale enabel task scheduling in CPU data byte structure bit
@@ -460,14 +460,12 @@ end:
 wait:
 ;***yield processing
     _YIELD_TASK
-
 	ldd temp,Y+TASK_TIMEOUT_OFFSET      
 	tst temp
 	breq end
     rjmp wait
-
-
 end:
+
 	pop YH
 	pop YL 
 	pop temp
@@ -546,7 +544,7 @@ end:
 .ENDMACRO
 
 
-#ifdef TASK_SLEEP_EXT
+
 ;----------------------------------------------------------------
 ;KERNEL MODE API 
 ;USAGE:	16 bit value(long timeout) - decrement timeout byte in each task's TCB if<>0
@@ -558,7 +556,9 @@ end:
 ;		  extra 3 bytes on stack	
 ;----------------------------------------------------------------
 
-.MACRO _kePROCESS_SLEEP_INTERVAL_EXT
+.MACRO _kePROCESS_SLEEP_INTERVAL
+#ifdef TASK_SLEEP_EXT
+;-------16 bit long sleep--------------
     push r17
 	push YL
 	push YH 
@@ -591,19 +591,9 @@ end:
 	pop YH
 	pop YL 	
 	pop r17
-.ENDMACRO
 
 #else
-;----------------------------------------------------------------
-;KERNEL MODE API 
-;USAGE:	Decrement timeout byte in each task's TCB if<>0
-;		Walks through all TCB and decrements timeout byte
-;USED:	temp,YL,YH(saved on current task stack,temp is saved in _PRE_INTERRUPT)
-;INPUT: none
-;WARNING: USED IN INTERRUPT ONLY!!!
-;----------------------------------------------------------------
-
-.MACRO _kePROCESS_SLEEP_INTERVAL
+;-------8 bit long sleep--------------
 	push YL
 	push YH 
 
@@ -627,10 +617,8 @@ skip:
 end:
 	pop YH
 	pop YL 
-
-.ENDMACRO
 #endif
-
+.ENDMACRO
 
 ;per CPU register
 .dseg
@@ -691,7 +679,7 @@ switch_task_on:
 
 
 ;start Timer0(Schedualing)	
-	_ENABLE_TASKSHEDUAL_TIMER temp
+	_ENABLE_TASKSHEDUAL_TIMER @0
 
 ;initialize current task pointer with Task #1
     ldi YL,low(TCB) 		
@@ -729,9 +717,12 @@ loop:
 	lsr temp              ;MSB->LSB order. Task definition order the sooner defined the higher its priority 
 	brcc loop
 	    
-	;there is an interrupt but task to dispatch to is in sleep -> waik it up!	 
+	;there is an interrupt but task to dispatch to is in sleep -> wake it up!	 
     clr temp    
 	std Y+TASK_TIMEOUT_OFFSET,temp
+	#ifdef TASK_SLEEP_EXT
+	std Y+TASK_TIMEOUT_OFFSET+1,temp
+	#endif
 	rjmp end
 
 ;2.NORMAL level round robin(eternal loop if no task is ready,will block if all tasks suspended)

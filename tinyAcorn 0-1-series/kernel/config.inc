@@ -62,7 +62,7 @@ Enable sleep mode
 #ifdef SLEEP_MODE
 /*
 Define the maximum number to participate in SLEEP sequence
-These are the  tasks which will invoke _SLEEP_TASK macro
+These are the  tasks which will invoke _SLEEP_CPU_TASK macro
 */
  #define SLEEP_TASKS_REQUEST_NUMBER 2
 #endif

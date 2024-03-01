@@ -1,7 +1,4 @@
-;
-; tiny-acorn.asm
-;
-; Created: 11/10/2023 5:50:21 PM
+; Tiny acorn micro kernel - series 0/1
 ; Author : Sergey Iliev
 ;
 
@@ -16,12 +13,12 @@ RESET:
 	_keBOOT
 		
 	_REGISTER_TASK_STACK button_press_task,60 
-	_REGISTER_TASK_STACK Task_2,60 
+	_REGISTER_TASK_STACK task_2,60 
 	_REGISTER_TASK_STACK usart_task,50
 	_REGISTER_TASK_STACK rtc_task,50
 	
 
-	_START_SCHEDULAR
+	_START_SCHEDULAR temp
 
 
 
@@ -48,19 +45,18 @@ SystemTickInt:
   
   ;clear int flag AVR 0 1 series only
   _CLEAR_TIMER_INT_FLAG
-  #ifdef TASK_SLEEP_EXT
-  _kePROCESS_SLEEP_INTERVAL_EXT	
-  #else
-  _kePROCESS_SLEEP_INTERVAL	
-  #endif
+
+  _kePROCESS_SLEEP_INTERVAL
+
 
   _POST_INTERRUPT
 rjmp TaskSchedular
 
-.include "include/but_press_task.asm"
-.include "include/blink_led_task.asm"
-.include "include/usart_task.asm"
-.include "include/rtc_task.asm"
+.include "tasks/but_press_task.asm"
+.include "tasks/blink_led_task.asm"
+.include "tasks/usart_task.asm"
+.include "tasks/rtc_task.asm"
 
 .EXIT
+
 

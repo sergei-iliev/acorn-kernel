@@ -31,17 +31,14 @@
 	sts TCA0_SINGLE_CTRLA,temp
 .ENDMACRO
 
-;Executed in the LIMBO state or during CPU init - no context defined
-;Use any register
+
 .MACRO _ENABLE_TASKSHEDUAL_TIMER
     lds @0,TCA0_SINGLE_CTRLA
 	sbr @0,1<<TCA_SINGLE_ENABLE_bp
 	sts TCA0_SINGLE_CTRLA,@0
 .ENDMACRO
 
-;Executed in the LIMBO state or CPU init - no context defined
-;Use any register
-;@USE  temp
+
 .MACRO _DISABLE_TASKSHEDUAL_TIMER
     lds @0,TCA0_SINGLE_CTRLA
 	cbr @0,1<<TCA_SINGLE_ENABLE_bp
