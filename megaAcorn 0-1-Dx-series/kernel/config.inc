@@ -1,7 +1,7 @@
 /*
 Define the frequency value the CPU is running at 
 */
-#define SYSTEM_CLOCK= 20000000   ;Hz
+#define SYSTEM_CLOCK 24000000   ;Hz
 
 /*
 *Define the number of tasks. Up to 16 for X and Mega kernel 
@@ -58,7 +58,7 @@ Enable sleep mode
 Define the maximum number to participate in SLEEP sequence
 These are the  tasks which will invoke _SLEEP_TASK macro
 */
- #define SLEEP_TASKS_REQUEST_NUMBER 2
+ #define SLEEP_TASKS_REQUEST_NUMBER 1
 #endif
 /*
 Define Synchronization macros if needed.

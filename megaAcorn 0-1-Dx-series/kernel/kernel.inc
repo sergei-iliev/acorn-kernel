@@ -435,7 +435,7 @@ ret
 ;----------------------------------------------------------------
 .MACRO  _YIELD_TASK
     cli
- 	rcall TaskSchedular
+ 	call TaskSchedular
 .ENDMACRO
 
 #ifdef TASK_SLEEP_EXT
@@ -521,12 +521,13 @@ end:
 #endif
 ;----------------------------------------------------------------
 ;KERNEL MODE API 
-;USAGE:	Decrement timeout byte in each task's TCB if<>0
+;USAGE:	16 bit value(long timeout) - decrement timeout byte in each task's TCB if<>0
 ;		Walks through all TCB and decrements timeout byte
-;		Fired by 16bit system timer      
-;USED:	temp,YL,YH,r17(saved on current task stack,temp is saved in _PRE_INTERRUPT)
+;USED:	temp,r17,r18,YL,YH(saved on current task stack,temp is saved in _PRE_INTERRUPT)
 ;INPUT: none
 ;WARNING: USED IN INTERRUPT ONLY!!!
+;		  At user level use _TASK_SLEEP_EXT
+;		  extra 3 bytes on stack	
 ;----------------------------------------------------------------
 
 .MACRO _kePROCESS_SLEEP_INTERVAL
@@ -743,17 +744,17 @@ _POST_INTERRUPT
 
 ;----------------------------------------------------------------
 ;KERNEL MODE API
-;Start the task schedular
+;Start the task schedular and start running Task #1
 ;Enable global interrups							   
 ;@WARNING: Platform dependent in regard to Timer being used for scheduling
 ;----------------------------------------------------------------
-.MACRO _START_SCHEDULAR
+.MACRO _keSTART_SCHEDULAR
 ;set up Timer0
     _INIT_TASKSHEDUAL_TIMER
 
 
 ;start Timer0(Schedualing)	
-	_ENABLE_TASKSHEDUAL_TIMER @0
+	_ENABLE_TASKSHEDUAL_TIMER temp
 
 ;initialize current task pointer with Task #1
     ldi YL,low(TCB) 		

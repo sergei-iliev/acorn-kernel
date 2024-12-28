@@ -1,1 +1,1 @@
-#####  mega-acorn® 0/1-series micro kernel v1.1 ROCKS
+#####  mega-acorn® 0/1/Dx-series micro kernel v2.0 ROCKS

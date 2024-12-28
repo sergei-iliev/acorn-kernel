@@ -15,7 +15,7 @@
 	sts TCA0_SINGLE_CTRLB,temp
 	
 	lds temp,TCA0_SINGLE_EVCTRL
-	cbr temp,(1<<TCA_SINGLE_CNTEI_bp)
+	cbr temp,(1<<TCA_SINGLE_CNTAEI_bp)
 	sts TCA0_SINGLE_EVCTRL,temp
 
 	ldi temp,low(0x10)
@@ -58,24 +58,26 @@ Clock Controller init
     ldi temp,CPU_CCP_IOREG_gc		// disable register security for oscillator update	   
 	out CPU_CCP,temp
 	
-	ldi temp,CLKCTRL_CLKSEL_OSC20M_gc		//enable 20MHz oscillator
+	ldi temp,FUSE_CLKSEL_OSCHF_gc		//enable internal oscillator
 	sts CLKCTRL_MCLKCTRLA,temp
 
     ldi temp,CPU_CCP_IOREG_gc		// disable register security for oscillator update	   
 	out CPU_CCP,temp
-	
-	ldi temp,0<<CLKCTRL_PEN_bp		// disable divider full blown 20Mhz
-	sts CLKCTRL_MCLKCTRLB,temp    
-  
 
-    //ldi temp,1<<(CLKCTRL_PDIV0_bp) |(1<<CLKCTRL_PEN_bp)		// 4 divider
-	//sts CLKCTRL_MCLKCTRLB,temp  
+	ldi temp,CLKCTRL_FRQSEL_24M_gc		//enable 24MHz oscillator
+	sts CLKCTRL_OSCHFCTRLA,temp
+
+    ldi temp,CPU_CCP_IOREG_gc		// disable register security for oscillator update	   
+	out CPU_CCP,temp
+	
+	ldi temp,0<<CLKCTRL_PEN_bp		// disable divider full blown 24Mhz
+	sts CLKCTRL_MCLKCTRLB,temp    
 	
 	//wait until oscilator staberlizes
 	osc_ready:
 
 	lds temp,CLKCTRL_MCLKSTATUS
-	sbrs temp,CLKCTRL_OSC20MS_bp  
+	sbrs temp,CLKCTRL_OSCHFS_bp  
 	rjmp osc_ready
 
 .ENDMACRO

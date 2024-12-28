@@ -113,6 +113,11 @@
  rol @0
 .ENDMACRO
 
+;@MACRO LSR16 MSB,LSB
+.MACRO LSR16
+ lsr @0 
+ ror @1
+.ENDMACRO
 /*
 32 - bit arithmetic 
 */

@@ -9,18 +9,20 @@ in the interrupt handler as it is.
 .ORG        0x00  
 	 rjmp    RESET      ;OS entry point
 
-.ORG RTC_PIT_vect
-     rjmp RTC_PIT_Intr
+;.ORG RTC_PIT_vect
+;     rjmp RTC_PIT_Intr
 
-.ORG PORTC_PORT_vect
-     rjmp PORTC_Intr
+.ORG TCB0_INT_vect
+     rjmp TCB0_Intr
 
 .ORG        TCA0_OVF_vect
      rjmp SystemTickInt
 
-
 .ORG  USART0_RXC_vect
      rjmp USART0_RXC_Intr
+;.ORG PORTC_PORT_vect
+;     rjmp PORTC_Intr
+
 
 ;.ORG OVF1addr
 ;     rjmp T1OVF       ;ordinary timer

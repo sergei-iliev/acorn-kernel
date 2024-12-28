@@ -1,23 +1,24 @@
 ;
-; mega-acorn.asm
+; mega-kernel_2.0.asm
 ;
+; Created: 11/6/2024 4:33:22 PM
 ; Author : Sergey Iliev
 ;
-
 .include "kernel/interrupt.inc" 
 .include "kernel/hardware.inc" 
-.include "kernel/kernel.inc" 
+.include "kernel/kernel.inc"
+
+; Replace with your application code
 
 .cseg
 RESET:
 	_keBOOT
-
-	_REGISTER_TASK_STACK button_press_task,60 
 	_REGISTER_TASK_STACK blink_led_task,60 
-	_REGISTER_TASK_STACK usart_task,50
-	_REGISTER_TASK_STACK rtc_task,50
+	_REGISTER_TASK_STACK usart_producer_task,50
+	_REGISTER_TASK_STACK button_press_event_system_task,50
+	_REGISTER_TASK_STACK oled_sh1107_task,100	
 
-	_START_SCHEDULAR temp
+	_keSTART_SCHEDULAR
 ;never get here
 
 
@@ -51,8 +52,11 @@ SystemTickInt:
   _POST_INTERRUPT
 rjmp TaskSchedular
 
-.include "tasks/but_press_task.asm"
+
 .include "tasks/blink_led_task.asm"
-.include "tasks/usart_task.asm"
-.include "tasks/rtc_task.asm"
+.include "tasks/usart_producer_task.asm"
+.include "tasks/button_press_event_system_task.asm"
+.include "tasks/oled_sh1107_task.asm"
+
+
 .EXIT
