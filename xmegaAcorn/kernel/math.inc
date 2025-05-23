@@ -17,6 +17,11 @@
 	sbci @1,high(@2)
 .ENDMACRO 
 
+.MACRO DEC16 
+	subi @0,1 
+	sbci @1,0
+.ENDMACRO 		
+	 
 .MACRO LDI16 
    ldi	@0,low(@2)
    ldi	@1,high(@2)
@@ -113,6 +118,11 @@
  rol @0
 .ENDMACRO
 
+;@MACRO LSR16 MSB,LSB
+.MACRO LSR16
+ lsr @0 
+ ror @1
+.ENDMACRO					 	 
 /*
 32 - bit arithmetic 
 */

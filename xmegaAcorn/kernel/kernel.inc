@@ -5,8 +5,9 @@ Acorn introduces 2 basic logical levels of code execution:
 2.KERNEL mode - the code being executed by the interrupt procedures
 User mode is interuptible , it could be preempted by the task schedular or interupt
 Kernel mode is NOT interruptible - the kernel clears the global interrupt flag on each interrupt so 
-any code within interrupt procedure is executed in an atomic fashion.Use Deffered Procedure Call - like
-dispatching to execute interrupt related code at DEVICE level and keep interrupt handle time shorter.
+any code within interrupt procedure is executed in an atomic fashion.
+Interrupt nesting is forbidden - all interrupts served at PMIC LOW  LEVEL
+Use Deffered Procedure Call - like dispatching to execute interrupt related code at DEVICE level and keep interrupt handle time shorter.
 There are 2 priority levels:
 1.PASSIVE level
 2.DEVICE level
@@ -17,7 +18,7 @@ sergei_iliev@yahoo.com
 
 #define OS XMEGAACORN
 
-#define VERSION 3.1
+#define VERSION 2.0
 
 #define HIGH_RAM_ADDRESS high(SRAM_START)
 
@@ -30,18 +31,11 @@ sergei_iliev@yahoo.com
 
 .cseg
 .def    temp=r16    ;temp reg.
-/*
-Define PC bytes size
-*/
+
 #ifndef TASKS_NUMBER
 	#error TASKS_NUMBER is not defined. Use config file to do it
 #endif 
 
-#ifdef AVR_4_BYTE_PC
-	#define AVR_PC_SIZE 4
-#else
-	#define AVR_PC_SIZE 3
-#endif
 #message CPU Program Counter is AVR_PC_SIZE bytes long
 
 #if (TASKS_NUMBER>16)
@@ -51,10 +45,6 @@ Define PC bytes size
 ;Keeping TCB structures as first structures in RAM layout enables
 ;less instructions in round robin calculations 
 #define TCB_MAX_SIZE   low(SRAM_START+1+(TASKS_NUMBER*TASK_TCB_SIZE))
-
-
-.EQU TASK_TCB_SIZE=4   ;TCB size is see below
-
 
 ;-----------------------;
 ;1.LSB
@@ -66,7 +56,7 @@ Define PC bytes size
 ;6bit->Is task in runable state(0-schedulable(default);1-not schedulable;Idle task is always schedulable)
 ;0-3bit-> Task ID number(up to 16 tasks)
 ;-----------------------
-;4.Sleep Timeout
+;4-5 .Sleep Timeout - controled by schedular
 ;-----------------------;
 
 
@@ -118,7 +108,9 @@ TCB: .byte TASK_TCB_SIZE*TASKS_NUMBER
 
 .cseg
 
+#message ******************************************************************************************
 #message **********************OS  VERSION " using " TASKS_NUMBER " tasks.*************************"
+#message ******************************************************************************************														
 
 .MACRO  _keOS_SAVE_CONTEXT
 	push r0
@@ -223,21 +215,8 @@ TCB: .byte TASK_TCB_SIZE*TASKS_NUMBER
     ldi     temp,low(RAMEND-AVR_PC_SIZE)
     out     CPU_SPL,temp
  
-;2. set up 32MHz internal clock
-    ldi temp,CCP_IOREG_gc		// disable register security for oscillator update
-	out CPU_CCP,temp
-	ldi temp,OSC_RC32MEN_bm		// enable 32MHz oscillator
-	sts OSC_CTRL,temp 
-osc_ready:						// wait for oscillator to be ready
-	lds temp,OSC_STATUS
-	sbrs temp,OSC_RC32MRDY_bp
-	rjmp osc_ready
-
-	ldi temp,CCP_IOREG_gc		// disable register security for clock update
-	out CPU_CCP,temp
-	
-	ldi temp,CLK_SCLKSEL_RC32M_gc	// switch to 32MHz clock
-	sts CLK_CTRL,temp 
+ ;2. Clock Controller set up 32MHz internal clock
+	_INIT_CLOCK_CONTROLLER
 	     	       			  
 ;3. clear SRAM
 	ldi XL,low(RAMEND+1)
@@ -251,11 +230,21 @@ initos:
 	brne initos
 
 ;4.PMIC init   - use LOW level only - no interrupt nesting
-	lds temp,PMIC_CTRL
-	ori temp,PMIC_LOLVLEN_bm
-	sts PMIC_CTRL,temp
+	_INIT_INTERRUPT_CONTROLLER
 
-;???check system memory layout -> no static byte allocation before system memory layout
+
+;check system memory layout -> no static byte allocation before system memory layout
+/*
+#ifdef DEBUG
+	ldi r19,low(keMemory)
+	ldi r20,high(keMemory)
+
+	CPI16  r19,r20,temp,SRAM_START
+	breq debug_next
+	rjmp RESET     ;LOOP forever until you move program memory allocation after system memory layout
+debug_next:	 
+#endif
+*/
 ;prepare task id increment register (boot time global variable)
 	clr r17
 ;prepare current tasks TCB pointer (boot time global variable)
@@ -442,41 +431,7 @@ ret
     cli
  	call TaskSchedular
 .ENDMACRO
-/*
-;----------------------------------------------------------------
-;USER MODE API
-;Start executive mode - 
-;1.elivate task to DEVICE_LEVEL
-;2.disable scheduling 
-;Use this in rear cases like 1-wire protocol.
-;@WARNING: using _INTERRUPT_WAIT/_INTERRUPT_END is not allowed since DPC flag is always on!
-;----------------------------------------------------------------
-.MACRO  _START_EXECUTIVE_MODE    
-	push temp
-	
-	cli
-	lds temp,InterruptDispatchFlag
-	sbr temp,1<<@0
-    sts InterruptDispatchFlag,temp
-	sei
 
-	_DISABLE_TASKSHEDUAL_TIMER
-	pop temp
-.ENDMACRO
-
-.MACRO  _END_EXECUTIVE_MODE
-	push temp
-
-	cli
-    lds temp,InterruptDispatchFlag  
-	cbr temp,1<<@0
-    sts InterruptDispatchFlag,temp 
-	sei
-
-	_ENABLE_TASKSHEDUAL_TIMER
-	pop temp
-.ENDMACRO
-*/
 ;----------------------------------------------------------------
 ;USER MODE API
 ;USAGE:	Save time in units to wait on in current task TCB
@@ -494,13 +449,13 @@ ret
 	ldi YH,HIGH_RAM_ADDRESS              
 
 	ldi temp,@0
-	std Y+3,temp
+	std Y+TASK_TIMEOUT_OFFSET,temp
 
 ;***wait for it
 wait:
 ;***yield processing
     _YIELD_TASK
-    ldd temp,Y+3    
+    ldd temp,Y+TASK_TIMEOUT_OFFSET    
     tst temp
 	breq end
     rjmp wait
@@ -528,11 +483,11 @@ end:
     ldi YH,high(TCB)
 
 loop:
-    ldd temp,Y+3
+    ldd temp,Y+TASK_TIMEOUT_OFFSET
     tst temp
 	breq skip
     dec temp
-    std Y+3,temp    
+    std Y+TASK_TIMEOUT_OFFSET,temp    
 skip:	   
 	cpi YL,low(TCB+(TASK_TCB_SIZE*(TASKS_NUMBER-1)))      
     breq end
@@ -561,9 +516,9 @@ end:
 	ldi YH,HIGH_RAM_ADDRESS
 
     ;***modify SCHEDULABILITY bit    
-	ldd temp,Y+2
+	ldd temp,Y+TASK_STATE_OFFSET
     sbr temp,(1<<TASK_SCHEDULABLE_BIT)
-	std Y+2,temp	   
+	std Y+TASK_STATE_OFFSET,temp	   
     
 	pop YH
 	pop YL 
@@ -589,7 +544,7 @@ end:
 	push XL
 	push XH
     ;calculate the target TCB and the byte offset where the scedualability bit is
-    CALCULATE_TARGET_TCB_OFFSET (@1-1)*TASK_TCB_SIZE,2
+    CALCULATE_TARGET_TCB_OFFSET (@1-1)*TASK_TCB_SIZE,TASK_STATE_OFFSET
 
     ld temp,X	
     cbr temp,(1<<TASK_SCHEDULABLE_BIT)
@@ -666,7 +621,7 @@ switch_task_on:
 ;Enable global interrups							   
 ;@WARNING: Platform dependent in regard to Timer being used for scheduling
 ;----------------------------------------------------------------
-.MACRO _START_SCHEDULAR
+.MACRO _keSTART_SCHEDULAR
 ;set up Timer0
     _INIT_TASKSHEDUAL_TIMER
 
@@ -675,7 +630,7 @@ switch_task_on:
 	_ENABLE_TASKSHEDUAL_TIMER
 
 ;initialize current task pointer with Task #1
-    ldi YL,low(SRAM_START+1) 		
+    ldi YL,low(TCB) 		
 	sts pxCurrentTCB,YL
 	
 	_keOS_RESTORE_CONTEXT
@@ -713,7 +668,7 @@ loop:
     
 	;there is an interrupt but task to dispatch to is in sleep -> waik it up!	 
     clr temp    
-	std Y+3,temp
+	std Y+TASK_TIMEOUT_OFFSET,temp
 
 	rjmp end
 
@@ -730,7 +685,7 @@ la:
 	ldi YL, low(TCB)
 	ldi YH, high(TCB)	
 lab:
-	ldd temp,Y+2
+	ldd temp,Y+TASK_STATE_OFFSET
 	sbrc temp,TASK_SCHEDULABLE_BIT
     rjmp la	
 end:	
@@ -763,6 +718,9 @@ It is a good practise to disable the respective interrupt source during the curr
 
 .MACRO _INTERRUPT_DISPATCHER_INIT
     #ifdef DEBUG
+	.if (@1<0 | @1>7) 
+		.error "Interrupt dispatch priority index must be between 0 and 7"
+	.endif				   																	  
 	.if (7-@1) > (IDT_SIZE-1) 
 		.error "ITD size is too small to accomodate requested lavel. Increase the size."
 	.endif
@@ -790,9 +748,9 @@ It is a good practise to disable the respective interrupt source during the curr
 	
 ;1.make task unscheduleable
     cli
-	ldd temp,Y+2
+	ldd temp,Y+TASK_STATE_OFFSET
 	sbr temp,(1<<TASK_SCHEDULABLE_BIT)
-	std Y+2,temp
+	std Y+TASK_STATE_OFFSET,temp
 	sei
 ;2.wait for INTERRUPT DISPATCH priority flag
 wait:
@@ -826,9 +784,9 @@ end:
 	
     		
 	;1.***modify SCHEDULABILITY bit    
-	ldd temp,Y+2
+	ldd temp,Y+TASK_STATE_OFFSET
     cbr temp,(1<<TASK_SCHEDULABLE_BIT) ;set to 0=activate task(we want to run in NORMAL LEVEL where active flag is checked by the schedular)
-	std Y+2,temp    
+	std Y+TASK_STATE_OFFSET,temp    
 
 	;2 *** mark IDF off
     lds temp,InterruptDispatchFlag  
@@ -904,16 +862,7 @@ intX:
     pop r17
 	
 	brsh  nodeschedual       ;avoid dispatching if DPC of higher priority is being processed
-	/*
-	ldi temp,low(DispatchDPCExtension)
-    push temp
-	ldi temp,high(DispatchDPCExtension)
-	push temp
-    ret           ;1.deschedual/dispatch right away - notice that interrupt flag in SREG is still OFF
-	              ;reti in TaskSchedular will enable it              
-				  ;2.temp and SREG will be restored between labels "DispatchDPCExtension" and "TaskSchedular"
-
-    */
+	
 	
 	;restore temp and SREG to its task's context value/make sure _PRE_INTERRUPT is invoked first!!!!!!!!!!!!!    		
 	_POST_INTERRUPT

@@ -11,7 +11,28 @@ Define the frequency value the CPU is running at
 /*
 Program Counter register size (4 or 3 bytes)
 */
-#define AVR_3_BYTE_PC    
+#define AVR_3_BYTE_PC   
+
+
+#ifdef AVR_4_BYTE_PC
+	#define AVR_PC_SIZE 4
+#else
+	#define AVR_PC_SIZE 3
+#endif
+
+/*
+Define 2 bytes sleep task interval
+*/
+#define TASK_SLEEP_EXT
+	
+#ifdef TASK_SLEEP_EXT
+    #define TASK_TCB_SIZE 5			; 2 byte stack pointer , 1 task status and 2 bytes timeout value 
+#else
+	#define TASK_TCB_SIZE 4			; 2 byte stack pointer 
+#endif
+
+#define TASK_STATE_OFFSET 2
+#define TASK_TIMEOUT_OFFSET 3
 
 /*
 Default stack size per task.

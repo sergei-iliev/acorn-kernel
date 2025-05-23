@@ -10,12 +10,15 @@ in the interrupt handler as it is.
 	 rjmp    RESET      ;OS entry point
 .ORG        TCC0_OVF_vect
      rjmp SystemTickInt
-.ORG        TCC1_OVF_vect
-     rjmp TCC1Int
+;.ORG        TCC1_OVF_vect
+;     rjmp TCC1Int
 
-.ORG        PORTE_INT0_vect
-     rjmp porte_int0
+;.ORG        PORTE_INT0_vect
+;     rjmp porte_int0
 
 .ORG        PORTE_INT1_vect
      rjmp porte_int1
+
+;.ORG		USARTD0_RXC_vect
+;	rjmp USARTD0_Rx
 .EXIT 
