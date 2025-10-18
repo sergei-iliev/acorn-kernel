@@ -52,7 +52,7 @@ rjmp TaskSchedular
 .include "tasks/blink_led_task.asm"
 .include "tasks/tft_lcd_task.asm"
 .include "tasks/button_task.asm"
-.include "tasks/usart_D_task.asm"
+.include "tasks/usart_producer_task.asm"
 
 .EXIT
     

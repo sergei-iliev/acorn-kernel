@@ -1,85 +1,81 @@
 .include "tasks/st7735.asm"
-tft_lcd_task:     
+
+/* tft lcd task to render images comming from web serial interface */
+tft_lcd_task:
+
 	_THRESHOLD_BARRIER_WAIT  InitTasksBarrier,TASKS_NUMBER
 
-//**** test snipet start
-      ;position text cursor
-	  ldi temp,20
-	  sts PosX,temp
-	  sts PosY,temp
-
-	  ;input char from ASCI table 
-	  ldi argument,'1'
-	  subi argument,32   //calc row number
-
-	  ;translate to bytes representation in fonts table
-	  ldi	ZH,high(font*2)
-      ldi	ZL,low(font*2)
-	   
-	  ldi r20,5				//cols const
-	  mov r21,argument             //row number variable
-	  MUL r20,r21
-	  
-      ADD16 ZL,ZH,r0,r1
-	  //add padding 0's to each row
-	  //this will position pointer at beginning left most
-	  clr r20
-	  ADD16 ZL,ZH,r21,r20
-	  //this will position pointer right most -> better since we decrement
-	  ADDI16 ZL,ZH,4
-
-	  ldi temp,5       //column number
-	  mov r10,temp
-
-	  
-lrb_1:
-	  tst r10
-	  breq lrb_2           ;all columns?
-	  
-	  lpm					;read next col from font 8x5
-	  mov	argument,r0	
-	  	  
- 	  //loop through 8 row bits
-	  ldi temp,8
-	  mov r9,temp
-lrb_row_1:
-      tst r9
-	  breq lrb_row_2
-
-	  lsl argument
-	  brcc no_pixel
-	  //draw black pixel
-	  
-	  nop
-	  nop
-no_pixel:
-      dec r9
-	  rjmp lrb_row_1
-
-lrb_row_2:
-	  sbiw ZH:ZL,1         //move to next column
-
-	  dec r10
-	  rjmp lrb_1
-lrb_2:	
-//**** test snipet end
 	_SLEEP_TASK 255
 	rcall ST7735_init
 
 	rcall ST7735_clear_screen
 	
+
 tft_lcd_main:
-    rcall draw_hor_line
-    rcall draw_slope_line
-	//rcall draw_point
-	rcall draw_filled_rect
-    
-stop:rjmp stop
+
+	//draw text
+	rcall draw_hello_world_text
+	;stop here
+    stop:rjmp stop
 
 rjmp tft_lcd_main
 
 
 
+;**************draw default font text
+draw_text_default:
+	ldi temp,10
+    mov startX,temp  
+    ldi temp,10
+    mov startY,temp 
+	ldi argument,'S'
+	  //COLOR
+	ldi dxh,high(RED)
+	ldi dxl,low(RED)  
+	rcall ST7735_draw_char
+
+	ldi temp,16
+    mov startX,temp  
+    ldi temp,10
+    mov startY,temp 
+	ldi argument,'e'
+	  //COLOR
+	;ldi dxh,high(RED)
+	;ldi dxl,low(RED)  
+
+	rcall ST7735_draw_char
+
+	ldi temp,22
+    mov startX,temp  
+    ldi temp,10
+    mov startY,temp 
+	ldi argument,'r'
+	rcall ST7735_draw_char
+
+	ldi temp,28
+    mov startX,temp  
+    ldi temp,10
+    mov startY,temp 
+	ldi argument,'g'
+	rcall ST7735_draw_char
+
+	
+	ldi temp,34
+    mov startX,temp  
+    ldi temp,10
+    mov startY,temp 
+	ldi argument,'e'
+	rcall ST7735_draw_char
+
+	
+	ldi temp,40
+    mov startX,temp  
+    ldi temp,10
+    mov startY,temp 
+	ldi argument,'y'
+	rcall ST7735_draw_char
+
+ret
 
 
 ;sloped line
@@ -114,9 +110,9 @@ draw_hor_line:
   ldi dxh,high(RED)
   ldi dxl,low(RED)  
 
-  ldi counter,5    ;X counter
+  ldi counter,0    ;X counter
   
-  ldi temp,5
+  ldi temp,129
   mov startY,temp
 
 line_00:  
@@ -125,13 +121,13 @@ line_00:
   rcall ST7735_draw_point
 
   inc counter
-  cpi counter,120
+  cpi counter,160
   brlo line_00
 
 ret
 
-
-draw_point:  
+;draw several points
+draw_points:  
   ldi temp,45
   mov startX,temp
   
@@ -189,13 +185,82 @@ draw_filled_rect:
   ldi bxl,low((51*31))
   
   //COLOR
-  ldi dxh,high(BLUE)
-  ldi dxl,low(BLUE)
+  ldi dxh,high(CYAN)
+  ldi dxl,low(CYAN)
   
 
   rcall ST7735_draw_rect
 
 ret
 
+/*****************************************
+TEST col and page positioning for text roboto
+******************************************/
+draw_hello_world_text:
+
+   clr startX
+   clr startY   
 
 
+   ldi	ZH,high(hello_world*2)
+   ldi	ZL,low(hello_world*2)
+
+dr_ml_loop:
+
+   	     
+   lpm argument, Z+ 
+   cpi argument,0x0A
+   breq dr_ml_nxt_line
+
+   //end of stream?
+   cpi argument,0x0C
+   breq dr_ml_nxt_ext
+
+   push ZH
+   push ZL
+   
+
+   ;coordinates for next char
+   mov temp,startX
+   subi temp,-1*ROBOTO_CHAR_COLS_LEN  ;next char offset in roboto
+   mov startX,temp ;input
+
+          
+   ;color
+   ldi dxh,high(YELLOW)
+   ldi dxl,low(YELLOW)
+   
+   push startY  ;it is modified in ST7735_draw_char_roboto
+   call ST7735_draw_char_roboto
+   pop startY
+
+   pop ZL
+   pop ZH   
+   rjmp dr_ml_loop
+
+dr_ml_nxt_line:
+   
+   ;calculate next Y pos
+   mov temp,startY
+   subi temp,-1*ROBOTO_CHARS_ROWS_LEN  ;next line
+   mov startY,temp 
+
+   clr startX
+
+   rjmp dr_ml_loop
+
+dr_ml_nxt_ext:
+
+   
+ret
+
+
+hello_world:
+.db "FOR GOD SO LOVED ",0x0A
+.db "THE WORLD THAT HE",0x0A
+.db "GAVE HIS ONLY SON",0x0A
+.db "THAT WHOEVER ",0x0A
+.db "BELIEVES IN HIM",0x0A
+.db "MAY NOT PERISH ",0x0A
+.db "BUT HAVE ETERNAL ",0x0A
+.db "LIVE ",0x0C

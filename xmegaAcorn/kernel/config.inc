@@ -70,7 +70,7 @@ Define Synchronization macros if needed.
 ;#define LATCH_EXTENTION
 
 ;enable simple event notification
-;#define EVENT
+#define EVENT
 
 ;enable simple mutex synchronization
 ;#define MUTEX

@@ -17,8 +17,8 @@ in the interrupt handler as it is.
 ;     rjmp porte_int0
 
 .ORG        PORTE_INT1_vect
-     rjmp porte_int1
+     jmp porte_int1
 
-;.ORG		USARTD0_RXC_vect
-;	rjmp USARTD0_Rx
+.ORG		USARTD0_RXC_vect
+	jmp USART0_RXC_Intr
 .EXIT 

@@ -79,6 +79,10 @@ ST7735 TFT LCD driver
   #define YELLOW                0xFFE0
   #define GREEN					0x07E0
   #define BLUE                  0x001F
+  #define BROWN					0xBC40
+  #define CYAN                  0x7FFF
+  #define MAGENTA               0xF81F
+  #define GRAY                  0xF81F
   // AREA definition
   // -----------------------------------
   #define MAX_X                 161               // max columns / MV = 0 in MADCTL
@@ -86,18 +90,19 @@ ST7735 TFT LCD driver
   #define SIZE_X                MAX_X - 1         // columns max counter
   #define SIZE_Y                MAX_Y - 1         // rows max counter
   #define CACHE_SIZE_MEM        (MAX_X * MAX_Y)   // whole pixels
-  #define CHARS_COLS_LEN        5                 // number of columns for chars
-  #define CHARS_ROWS_LEN        8                 // number of rows for chars
-
+ 
 .def	startX=r15
 .def	endX=r14
 .def	startY=r13
 .def	endY=r12
-
+  
+#define GRAPHICS_BUFFER_SIZE (20 * SIZE_Y)   //20x129
 .dseg
-PosX:  .byte 1
-PosY:  .byte 1
+graphics_buffer:   .byte GRAPHICS_BUFFER_SIZE
 .cseg
+
+
+
 /*********************Init st7735 driver******************
 @USAGE: ???
 ************************************************/
@@ -170,6 +175,283 @@ ST7735_reset:
 	sts PORTA_OUT,temp 
 
 ret
+
+/**************Draw Char************
+@INPUT: argument - character to print
+        startX,
+        startY,
+		
+        dxh:dxl - color
+		
+
+@USED: temp,Z,r20,r21,r0,r1,r8,r9,r10,r11
+*********************************/
+
+ST7735_draw_char:
+    // check if character is out of range
+	cpi argument,0x20
+	brlo drw_ch_exit
+	
+	cpi argument,0x7F
+	brsh drw_ch_exit
+
+	mov temp,startX
+	cpi temp,MAX_X
+	brsh drw_ch_exit
+
+	mov temp,startY
+	cpi temp,MAX_Y
+	brsh drw_ch_exit
+
+
+	subi argument,32  // { 0x7e, 0x11, 0x11, 0x11, 0x7e }
+	
+	;translate to bytes representation in fonts table
+	ldi	ZH,high(default_font*2)
+    ldi	ZL,low(default_font*2)
+
+    ldi r20,CHAR_SIZE	   //cols const
+    mov r21,argument             //row number variable
+    mul r20,r21					//result in r0:r1
+
+    ADD16 ZL,ZH,r0,r1
+
+    ldi temp,CHARS_COLS_LEN   //loop throu 5 columns 
+    mov r10,temp              //r10 counter 
+
+   ;preserve YY
+   mov r8,startY
+drw_ch_loop_x: 
+    tst r10
+    breq drw_ch_exit
+
+	lpm
+	mov	r11,r0	        ;r11 is char byte
+
+   ldi temp,8				 //loop through 8 bits
+   mov r9,temp               //r9 counter
+
+   ;start from Y init pos for each new letter byte
+   mov startY,r8
+drw_ch_loop_y:			; send bits one by one	in row
+   tst r9
+   breq drw_ch_01
+
+   ror r11
+   brcs	drw_ch_black_out_00
+   rjmp drw_ch_black_out_01
+
+drw_ch_black_out_00:
+   nop
+   call ST7735_draw_point	;input=X,Y,color
+
+
+drw_ch_black_out_01:
+   ;increment Y pos for next bit
+   inc startY
+
+   dec r9
+   rjmp drw_ch_loop_y
+
+drw_ch_01:
+	adiw ZH:ZL,1         //move to next column
+	dec r10
+	inc startX
+	rjmp drw_ch_loop_x
+
+drw_ch_exit:
+ret
+
+/*********************************Draw Char ROBOTO***************************************
+@INPUT: argument - character to print
+        startX,
+        startY,		
+        dxh:dxl - color
+ 
+;@USED:  temp,char,Z,r20,r21,r0,r1,r6,r7,r8,r9,r10,r11
+******************************************************************************************/
+ST7735_draw_char_roboto:
+    ;test if outside of drawing area
+	mov temp,startX				;test XX
+	subi temp,-1*ROBOTO_CHAR_COLS_LEN
+	cpi temp,MAX_X
+	brlo buf_char_roboto_yy
+ret
+buf_char_roboto_yy:        
+	mov temp,startY				;test YY
+	subi temp,-1*ROBOTO_CHARS_ROWS_LEN
+	cpi temp,MAX_Y
+	brlo buf_char_roboto_ok
+ret
+
+buf_char_roboto_ok:
+   subi argument,32
+   
+   ;translate to bytes representation in fonts table
+   ldi	ZH,high(roboto_mono_8x16*2)
+   ldi	ZL,low(roboto_mono_8x16*2)
+
+   ldi r20,ROBOTO_CHAR_SIZE	   //cols const in table each char is represented by 16 bytes
+   mov r21,argument             //row number variable
+   mul r20,r21
+
+   ADD16 ZL,ZH,r0,r1
+
+   ldi temp, 2      //font roboto has 2 rows by 8 bits each or 16 bits height
+   mov r6,temp
+
+buf_next_half_char_roboto_00:
+   tst r6				//are 2 halfs by 8 bits done?
+   breq buf_next_half_char_roboto_end
+
+   ldi temp,ROBOTO_CHAR_COLS_LEN   //loop throu 8 columns 
+   mov r10,temp              //r10 counter 
+
+   ;preserve XX
+   mov r7,startX
+
+
+   ;preserve YY
+   mov r8,startY
+
+buf_char_roboto_00: 
+   tst r10
+   breq buf_next_half_char_roboto_01   	
+
+   lpm					;read next col from font 8x8
+   mov	r11,r0	        ;r11 is char byte
+
+   ldi temp,8				 //loop through 8 bits
+   mov r9,temp               //r9 counter
+
+   ;start from Y init pos for each new letter byte
+   mov startY,r8
+
+buf_8bit_roboto_loop:			; send bits one by one	
+   tst r9
+   breq buf_8bit_roboto_end
+
+   ror r11
+   brcs	black_out_roboto_00	
+
+   rjmp black_end_roboto_00
+
+black_out_roboto_00:			//BLACK pixel
+   
+   call ST7735_draw_point	;input=X,Y,color
+
+black_end_roboto_00:
+   ;increment Y pos for next bit
+   inc startY
+
+   dec r9
+   rjmp buf_8bit_roboto_loop
+
+buf_8bit_roboto_end:
+   adiw ZH:ZL,1         //move to next column
+   dec r10
+   inc startX
+   rjmp buf_char_roboto_00
+
+buf_next_half_char_roboto_01:
+  dec r6    //next font half
+  mov startX,r7
+  //subi YY,-1*8
+
+  rjmp buf_next_half_char_roboto_00
+
+buf_next_half_char_roboto_end:
+
+ret
+
+/******************************************************************************************
+;Send buffer to oled - a bitmap picture
+;Buffer is sent bit by bit
+;@INPUT: dxh:dxl - color
+;		
+;@USED: Y,startX,startY,temp,r11,argument
+;@STACK:1
+******************************************************************************************/
+ST7735_send_buffer:
+
+    ldi YL,low(graphics_buffer)
+	ldi YH,high(graphics_buffer)
+
+    
+	ldi temp,-1	
+	mov startY,temp
+y_loop_00:			;height
+    mov temp,startY
+	inc temp		;next Y coord
+	mov startY,temp
+	cpi temp,SIZE_Y
+	breq xy_loop_out   
+
+
+	ldi temp,-1	;upt to 0xFF pixels width - not good but will do the work 
+	mov startX,temp
+	
+x_loop_00:			;width in pixels
+    
+	mov temp,startX
+	cpi temp,(SIZE_X-1)
+	breq y_loop_00   
+
+    ld argument,Y+	         ;read byte from buffer	
+	
+	ldi temp,0b10000000      ;start sending from MSB
+	mov r11,temp
+
+bit8_loop:		;next bit from byte	
+
+    tst r11
+	breq x_loop_00		;next X byte
+
+	;increment X coord
+	mov temp,startX
+	inc temp		;next X coord
+	mov startX,temp
+	
+	
+	mov temp,argument 
+	and temp,r11	;is it color pixel (must be 1)
+	lsr r11
+	cpi temp,0
+	breq bit8_loop      ;0 bit - don't color
+    
+	push argument	;var is used in other sub	
+    rcall ST7735_draw_point
+	pop argument
+	
+	nop	
+	rjmp bit8_loop 
+	
+xy_loop_out:
+
+ret
+/***********************************************************************************************
+;Clear local buffer
+;@USED: argument,temp,X,Y
+************************************************************************************************/
+ST7735_clear_buffer:
+	;clear 2048 bytes  128x16
+	ldi XL,low(GRAPHICS_BUFFER_SIZE)
+	ldi XH,high(GRAPHICS_BUFFER_SIZE)
+	
+	ldi YL,low(graphics_buffer)
+	ldi YH,high(graphics_buffer)
+
+	ldi argument,0x00   ;0 data to clear bit by bit
+
+buf_clr_loop_00:		
+	st Y+,argument
+	
+	
+	SUBI16 XL,XH,1
+	CPI16 XL,XH,temp,0
+	brne buf_clr_loop_00 
+ret
+
 /*********************Clear Screen******************
 @USAGE: temp,startX,endX,startY,endY,bxh,bxl
 ************************************************/
@@ -227,22 +509,7 @@ ST7735_draw_point:
    rcall ST7735_send_color565
 ret
 
-/**************Draw Char************
-@INPUT: argument - character to print
-        startX,
-        endX,
-		
-        dxh:dxl - color
-		bxh:bxl - size 
-
-@USED: axh:axl	   			      
-*********************************/
-
-ST7735_draw_char:
-	subi argument,32  // { 0x7e, 0x11, 0x11, 0x11, 0x7e }
-
-ret
-/*
+/***************************************************
 @INPUT: startX,
         endX,
 		startY,
@@ -251,7 +518,7 @@ ret
 		bxh:bxl - size 
 
 @USED: axh:axl	   			      
-*/
+*******************************************************/
 
 ST7735_draw_rect:
    rcall ST7735_set_window 
@@ -260,10 +527,11 @@ ST7735_draw_rect:
    mov axl,dxl
    rcall ST7735_send_color565
 ret 
-/*****Sets Drawing rect
+
+/*****Sets Drawing rect************************
 @INPUT: startX,endX,startY,endY
 @USED: axh:axl,argument
-*/
+*************************************************/
 ST7735_set_window:
   // column address set
   ldi argument,CASET
@@ -295,11 +563,11 @@ ST7735_set_window:
 
 ret
 
-/*
+/*****************************************************
 @INPUT: bxh:bxl - repeat count times
 		axh:axl  - color info
 @USED: argument,temp
-*/
+********************************************************/
 ST7735_send_color565:
   // access to RAM
   ldi argument,RAMWR
