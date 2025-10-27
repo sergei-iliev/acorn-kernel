@@ -976,9 +976,10 @@ demolatch:         .byte 1
 
 #endif
 
+
 /*
 SLEEP mode
 */
 #ifdef SLEEP_MODE
-.include "SLEEP.inc"
+.include "kernel/sleep.inc"
 #endif

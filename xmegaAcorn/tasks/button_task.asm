@@ -4,7 +4,7 @@
 
 #define BUTTON_PRESS_UPDOWN_PORTD_ID 6
 
-
+/*dummy task no reason to exists just keeps the core running*/
 button_task:
 	rcall port_configure_int1
 	

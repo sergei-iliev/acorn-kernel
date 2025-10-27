@@ -3,21 +3,22 @@
 /* tft lcd task to render images comming from web serial interface */
 tft_lcd_task:
 
-	_THRESHOLD_BARRIER_WAIT  InitTasksBarrier,TASKS_NUMBER
-
 	_SLEEP_TASK 255
 	rcall ST7735_init
 
 	rcall ST7735_clear_screen
 	
+	//draw text once
+	rcall draw_hello_world_text
+
+	_THRESHOLD_BARRIER_WAIT  InitTasksBarrier,TASKS_NUMBER
+
 
 tft_lcd_main:
 
-	//draw text
-	rcall draw_hello_world_text
-	;stop here
-    stop:rjmp stop
-
+	
+    _YIELD_TASK
+	
 rjmp tft_lcd_main
 
 

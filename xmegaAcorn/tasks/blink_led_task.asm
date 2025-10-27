@@ -39,4 +39,6 @@ blink_led_main:
 	ldi temp,1<<BLINK_LED		
     sts PORTB_OUTTGL,temp
 
+	_SLEEP_CPU_TASK VOID_CALLBACK,VOID_CALLBACK,temp
+
 rjmp blink_led_main

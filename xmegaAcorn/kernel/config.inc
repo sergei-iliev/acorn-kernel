@@ -50,7 +50,14 @@ Interrupt Dispatch Table size - up to 8  (8 tasks max to handle Interrupt Dispat
 /*
 Enable sleep mode 
 */
-;#define SLEEP_MODE
+#define SLEEP_MODE
+#ifdef SLEEP_MODE
+/*
+Define the maximum number to participate in SLEEP sequence
+These are the  tasks which will invoke _SLEEP_TASK macro
+*/
+ #define SLEEP_TASKS_REQUEST_NUMBER 1
+#endif
 
 /*
 Define Synchronization macros if needed.

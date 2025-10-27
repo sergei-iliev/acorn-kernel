@@ -42,14 +42,17 @@ usart_D_task:
 	call spc_queue8_init
 	
 
+    ;setup SLEEP on UART activity -> let the PC Browser wakes the kernel
+    _SLEEP_INIT temp
 
 	_THRESHOLD_BARRIER_WAIT  InitTasksBarrier,TASKS_NUMBER
 
 
 usart_D_main:
-
+     
+  
 rs_read_wait_00:
-
+	  
 	_EVENT_WAIT  RX_EVENT_ID
 
 rs_read_loop_00:
@@ -77,14 +80,14 @@ rs_read_cmd_01:
 	cpi return,RENDER_SCREEN_COMMAND
 	brne rs_read_cmd_end
 	rcall render_screen_command
+    ;put the CPU to sleep only to be awaken by UART
+    _SLEEP_CPU temp
 	    
-        
 rs_read_cmd_end:		
 
-	;put the CPU to sleep
-    ;_SLEEP_CPU temp	
 
 	rjmp rs_read_loop_00            ;repeat untill queue is empty
+
 rjmp usart_D_main
 
 
@@ -304,10 +307,6 @@ _PRE_INTERRUPT
 	ldi axl,USART_QUEUE_MAX_SIZE	
 	rcall spc_queue8_push	
 
-
-	lds temp,PORTB_OUT		
-    cbr temp,1<<BLINK_LED
-	sts PORTB_OUT,temp
 
 
 	pop r3
