@@ -1,16 +1,16 @@
 /*
-ST7735 TFT LCD driver
+ST7789 TFT LCD driver
 1.8' 128x160
 */
-.include "tasks/st7735_font.asm"
+.include "tasks/st7789_font.asm"
 
-#define ST7735_MOSI           5 // SDA
-#define ST7735_SCK            7 // SCL
+#define ST7789_MOSI           5 // SDA
+#define ST7789_SCK            7 // SCL
 
-#define ST7735_RES		4
-#define ST7735_DC		5
-#define ST7735_CS		6
-#define ST7735_BL		7
+#define ST7789_RES		4
+#define ST7789_DC		5
+#define ST7789_CS		6
+#define ST7789_BL		7
 
 /*
 1. MOSI_D  PD5	DATA IN
@@ -82,68 +82,76 @@ ST7735 TFT LCD driver
   #define BROWN					0xBC40
   #define CYAN                  0x7FFF
   #define MAGENTA               0xF81F
-  #define GRAY                  0xF81F
+  #define GRAY                  0x630C
   // AREA definition
   // -----------------------------------
-  #define MAX_X                 161               // max columns / MV = 0 in MADCTL
-  #define MAX_Y                 130               // max rows / MV = 0 in MADCTL
+  #define MAX_X                 320               // max columns / MV = 0 in MADCTL
+  #define MAX_Y                 240               // max rows / MV = 0 in MADCTL
   #define SIZE_X                MAX_X - 1         // columns max counter
   #define SIZE_Y                MAX_Y - 1         // rows max counter
   #define CACHE_SIZE_MEM        (MAX_X * MAX_Y)   // whole pixels
  
-.def	startX=r15
-.def	endX=r14
-.def	startY=r13
-.def	endY=r12
+
+
   
-#define GRAPHICS_BUFFER_SIZE (20 * SIZE_Y)   //20x129
+.def	startXH=r15
+.def	startXL=r14
+.def	endXH=r13
+.def	endXL=r12
+.def	startYH=r11
+.def	startYL=r10
+.def	endYH=r9
+.def	endYL=r8
+
+
 .dseg
-graphics_buffer:   .byte GRAPHICS_BUFFER_SIZE
+
 .cseg
 
 
 
-/*********************Init st7735 driver******************
+/*********************Init ST7789 driver******************
 @USAGE: ???
 ************************************************/
-ST7735_init:
+ST7789_init:
   // init pins
-  rcall ST7735_pins_init
+  rcall ST7789_pins_init
   // init SPI
-  rcall ST7735_spi_init
+  rcall ST7789_spi_init
   // hardware reset
-  rcall ST7735_reset
+  rcall ST7789_reset
   // load list of commands
-  rcall ST7735_commands
+  rcall ST7789_commands
 ret
 
 /*********************Init port pins******************
 @USAGE: temp
 ************************************************/
-ST7735_pins_init:
+ST7789_pins_init:
     //DDR
 	lds temp,PORTA_DIR		
-    ori temp,(1<<ST7735_CS)|(1<<ST7735_BL)|(1<<ST7735_DC)
+    ori temp,(1<<ST7789_CS)|(1<<ST7789_BL)|(1<<ST7789_DC)
 	sts PORTA_DIR,temp	
 	
 	//PORT
 	lds temp,PORTA_OUTSET  
-	ori temp,(1<<ST7735_CS)|(1<<ST7735_BL)   // Chip Select H		// BackLigt ON
+	ori temp,(1<<ST7789_CS)|(1<<ST7789_BL)   // Chip Select H		// BackLigt ON
 	sts PORTA_OUTSET,temp  
 ret
 
 /*********************Init SPI******************
 @USAGE: temp
+@WARNING: Double speed to 16MHz!!!!
 ************************************************/
-ST7735_spi_init:
+ST7789_spi_init:
     lds temp,PORTD_DIR		;MOSI and SCK
-    ori temp,(1<<ST7735_MOSI)|(1<<ST7735_SCK)
+    ori temp,(1<<ST7789_MOSI)|(1<<ST7789_SCK)
 	STS PORTD_DIR,temp
 
   // SPE  - SPI Enale
   // MSTR - Master device
   // 8MHz
-  ldi temp,(SPI_PRESCALER_DIV4_gc)|(1<<SPI_ENABLE_bp)|(1<<SPI_MASTER_bp)|(SPI_MODE_0_gc)	// SPI master, clock idle low, data setup on trailing edge, data sampled on leading edge, double speed mode enabled
+  ldi temp,(1<<SPI_CLK2X_bp)|(1<<SPI_ENABLE_bp)|(1<<SPI_MASTER_bp)|(SPI_MODE_0_gc)	//Double speed @16Mh, SPI master, clock idle low, data setup on trailing edge, data sampled on leading edge, double speed mode enabled
   sts SPID_CTRL,temp
 
   ;no interrupt
@@ -154,15 +162,15 @@ ret
 /*********************Hardware Reset******************
 @USAGE: temp,counter
 ************************************************/
-ST7735_reset:
+ST7789_reset:
     //DDR
 	lds temp,PORTA_DIR		
-    ori temp,(1<<ST7735_RES)
+    ori temp,(1<<ST7789_RES)
 	sts PORTA_DIR,temp
 	
 	//PORT  low
 	lds temp,PORTA_OUT  
-	cbr temp,1<<ST7735_RES
+	cbr temp,1<<ST7789_RES
 	sts PORTA_OUT,temp 
 
 	//***wait 10ms x 20 =200ms
@@ -171,119 +179,196 @@ ST7735_reset:
 
 	//PORT  high
 	lds temp,PORTA_OUT  
-	sbr temp,1<<ST7735_RES
+	sbr temp,1<<ST7789_RES
 	sts PORTA_OUT,temp 
 
 ret
 
-/**************Draw Char************
-@INPUT: argument - character to print
-        startX,
-        startY,
-		
+/*******************Fill Rect********************************
+Draw rect with coordinates x0,x1,y0,y1
+@INPUT: startX,
+        endX,
+		startY,
+		endY,
         dxh:dxl - color
 		
+@USED: axh:axl,bxl,bxh,,X   			      
+*******************************************************/
+st7789_fill_rect:
+   rcall ST7789_set_window 
 
-@USED: temp,Z,r20,r21,r0,r1,r8,r9,r10,r11
+     // access to RAM
+   ldi argument,RAMWR
+   rcall ST7789_command_send
+
+   //we need to pass width  x1-x0
+   mov XL,endYL
+   mov XH,endYH
+   ADDI16 XL,XH,1
+   SUB16 XL,XH,startYL,startYH
+    
+fill_rect_00:
+  //*** draw individual pixels
+  //we need to pass height  y1-y0
+  mov bxh,endXH			//inner X loop
+  mov bxl,endXL
+  ADDI16 bxl,bxh,1     
+  SUB16 bxl,bxh,startXL,startXH
+  
+  //color
+  mov axh,dxh
+  mov axl,dxl
+	
+
+fill_rect_01:
+  rcall ST7789_data_16bits_send
+ 
+  DEC16 bxl,bxh
+  CPI16 bxl,bxh,temp,0
+  brne fill_rect_01
+
+  
+  DEC16 XL,XH
+  CPI16 XL,XH,temp,0     	//outer Y loop
+  brne fill_rect_00
+
+ret 
+/*****************Draw pixel point*****************
+@INPUT: startX
+		startY		
+        dxh:dxl - color
+	
+@USED:  endX,
+		endY,
+		axh:axl	   			      
 *********************************/
+ST7789_draw_point:
+   mov endXH,startXH  
+   mov endXL,startXL
+     
+   mov endYH,startYH
+   mov endYL,startYL
 
-ST7735_draw_char:
-    // check if character is out of range
-	cpi argument,0x20
-	brlo drw_ch_exit
-	
-	cpi argument,0x7F
-	brsh drw_ch_exit
+   rcall ST7789_set_window 
 
-	mov temp,startX
-	cpi temp,MAX_X
-	brsh drw_ch_exit
+   // access to RAM
+   ldi argument,RAMWR
+   rcall ST7789_command_send
 
-	mov temp,startY
-	cpi temp,MAX_Y
-	brsh drw_ch_exit
-
-
-	subi argument,32  // { 0x7e, 0x11, 0x11, 0x11, 0x7e }
-	
-	;translate to bytes representation in fonts table
-	ldi	ZH,high(default_font*2)
-    ldi	ZL,low(default_font*2)
-
-    ldi r20,CHAR_SIZE	   //cols const
-    mov r21,argument             //row number variable
-    mul r20,r21					//result in r0:r1
-
-    ADD16 ZL,ZH,r0,r1
-
-    ldi temp,CHARS_COLS_LEN   //loop throu 5 columns 
-    mov r10,temp              //r10 counter 
-
-   ;preserve YY
-   mov r8,startY
-drw_ch_loop_x: 
-    tst r10
-    breq drw_ch_exit
-
-	lpm
-	mov	r11,r0	        ;r11 is char byte
-
-   ldi temp,8				 //loop through 8 bits
-   mov r9,temp               //r9 counter
-
-   ;start from Y init pos for each new letter byte
-   mov startY,r8
-drw_ch_loop_y:			; send bits one by one	in row
-   tst r9
-   breq drw_ch_01
-
-   ror r11
-   brcs	drw_ch_black_out_00
-   rjmp drw_ch_black_out_01
-
-drw_ch_black_out_00:
-   nop
-   call ST7735_draw_point	;input=X,Y,color
-
-
-drw_ch_black_out_01:
-   ;increment Y pos for next bit
-   inc startY
-
-   dec r9
-   rjmp drw_ch_loop_y
-
-drw_ch_01:
-	adiw ZH:ZL,1         //move to next column
-	dec r10
-	inc startX
-	rjmp drw_ch_loop_x
-
-drw_ch_exit:
+   //color
+   mov axh,dxh
+   mov axl,dxl
+   rcall ST7789_data_16bits_send
 ret
-
-/*********************************Draw Char ROBOTO***************************************
+/*********************************Draw Char ORLA***************************************
 @INPUT: argument - character to print
-        startX,
-        startY,		
+        startX - word size,
+        startYL - byte size,		
         dxh:dxl - color
  
-;@USED:  temp,char,Z,r20,r21,r0,r1,r6,r7,r8,r9,r10,r11
-******************************************************************************************/
-ST7735_draw_char_roboto:
-    ;test if outside of drawing area
-	mov temp,startX				;test XX
-	subi temp,-1*ROBOTO_CHAR_COLS_LEN
-	cpi temp,MAX_X
-	brlo buf_char_roboto_yy
-ret
-buf_char_roboto_yy:        
-	mov temp,startY				;test YY
-	subi temp,-1*ROBOTO_CHARS_ROWS_LEN
-	cpi temp,MAX_Y
-	brlo buf_char_roboto_ok
-ret
+;@USED:  bxl,bxh,temp,char,Z,axl,axh,r0,r1,r2,r3,r4,r5,r6
+***************************************************************************************/
+ST7789_draw_char_orla:
+   subi argument,32
+   ;translate to bytes representation in fonts table
+   ldi	ZH,high(orla_16x24*2)
+   ldi	ZL,low(orla_16x24*2)
 
+   ldi axl,ORLA_CHAR_SIZE	   //cols const in table each char is represented by 16 bytes
+   mov axh,argument             //row number variable
+   mul axl,axh
+
+   ADD16 ZL,ZH,r0,r1
+
+   ldi temp, ORLA_CHARS_ROWS_LEN      //font orla has 3 rows by 8 bits each or 24 bits height
+   mov r6,temp
+
+buf_next_half_char_orla_00:
+   tst r6				//are 3 halfs(rows) by 8 bits done?
+   breq buf_next_half_char_orla_end
+
+   ldi temp,ORLA_CHAR_COLS_LEN   //loop throu 16 columns 
+   mov r3,temp              //r3 counter 
+
+   ;preserve XX
+   mov bxl,startXL
+   mov bxh,startXH
+
+   ;preserve YY
+   mov r5,startYL
+
+buf_char_orla_00: 
+   tst r3
+   breq buf_next_half_char_orla_01   	
+
+   lpm					;read next col from font
+   mov	r2,r0	        ;r2 is char byte
+
+   ldi temp,8				 //loop through 8 bits
+   mov r4,temp               //r4 counter
+
+   ;start from Y init pos for each new letter byte
+   mov startYL,r5
+
+buf_8bit_orla_loop:			; send bits one by one	to 8 -> LSB bit goes first!
+   tst r4
+   breq buf_8bit_orla_end
+
+   ror r2
+   brcs	black_out_orla_00	
+
+   rjmp black_end_orla_00
+
+black_out_orla_00:			
+   call ST7789_draw_point	;input=X,Y,color
+
+black_end_orla_00:
+   ;increment Y pos for next bit
+   inc startYL
+
+   dec r4
+   rjmp buf_8bit_orla_loop
+
+buf_8bit_orla_end:
+   adiw ZH:ZL,1         //move to next column
+   dec r3
+   
+   ;inc startX
+   push bxl
+   push bxh
+   mov bxl,startXL
+   mov bxh,startXH
+   ADDI16 bxl,bxh,1
+   mov startXL,bxl
+   mov startXH,bxh
+   pop bxh
+   pop bxl
+
+   rjmp buf_char_orla_00
+
+buf_next_half_char_orla_01:
+  dec r6    //next font half
+  mov startXL,bxl
+  mov startXH,bxh
+
+
+  rjmp buf_next_half_char_orla_00
+
+buf_next_half_char_orla_end:
+ret
+/*********************************Draw Char ROBOTO***************************************
+@INPUT: argument - character to print
+        startX - word size,
+        startYL - byte size,		
+        dxh:dxl - color
+ 
+;@USED:  bxl,bxh,temp,char,Z,axl,axh,r0,r1,r2,r3,r4,r5,r6
+******************************************************************************************/
+ST7789_draw_char_roboto:
+	mov temp,startYL				;test YY
+	cpi temp,MAX_Y-ROBOTO_CHARS_ROWS_LEN
+	brlo buf_char_roboto_ok	
+ret
 buf_char_roboto_ok:
    subi argument,32
    
@@ -291,9 +376,9 @@ buf_char_roboto_ok:
    ldi	ZH,high(roboto_mono_8x16*2)
    ldi	ZL,low(roboto_mono_8x16*2)
 
-   ldi r20,ROBOTO_CHAR_SIZE	   //cols const in table each char is represented by 16 bytes
-   mov r21,argument             //row number variable
-   mul r20,r21
+   ldi axl,ROBOTO_CHAR_SIZE	   //cols const in table each char is represented by 16 bytes
+   mov axh,argument             //row number variable
+   mul axl,axh
 
    ADD16 ZL,ZH,r0,r1
 
@@ -305,58 +390,69 @@ buf_next_half_char_roboto_00:
    breq buf_next_half_char_roboto_end
 
    ldi temp,ROBOTO_CHAR_COLS_LEN   //loop throu 8 columns 
-   mov r10,temp              //r10 counter 
+   mov r3,temp              //r3 counter 
 
    ;preserve XX
-   mov r7,startX
-
+   mov bxl,startXL
+   mov bxh,startXH
 
    ;preserve YY
-   mov r8,startY
+   mov r5,startYL
 
 buf_char_roboto_00: 
-   tst r10
+   tst r3
    breq buf_next_half_char_roboto_01   	
 
    lpm					;read next col from font 8x8
-   mov	r11,r0	        ;r11 is char byte
+   mov	r2,r0	        ;r2 is char byte
 
    ldi temp,8				 //loop through 8 bits
-   mov r9,temp               //r9 counter
+   mov r4,temp               //r4 counter
 
    ;start from Y init pos for each new letter byte
-   mov startY,r8
+   mov startYL,r5
 
-buf_8bit_roboto_loop:			; send bits one by one	
-   tst r9
+buf_8bit_roboto_loop:			; send bits one by one	-> LSB bit goes first!
+   tst r4
    breq buf_8bit_roboto_end
 
-   ror r11
+   ror r2
    brcs	black_out_roboto_00	
 
    rjmp black_end_roboto_00
 
-black_out_roboto_00:			//BLACK pixel
-   
-   call ST7735_draw_point	;input=X,Y,color
+black_out_roboto_00:			
+   call ST7789_draw_point	;input=X,Y,color
 
 black_end_roboto_00:
    ;increment Y pos for next bit
-   inc startY
+   inc startYL
 
-   dec r9
+   dec r4
    rjmp buf_8bit_roboto_loop
 
 buf_8bit_roboto_end:
    adiw ZH:ZL,1         //move to next column
-   dec r10
-   inc startX
+   dec r3
+   
+   ;inc startX
+   push bxl
+   push bxh
+   mov bxl,startXL
+   mov bxh,startXH
+   ADDI16 bxl,bxh,1
+   mov startXL,bxl
+   mov startXH,bxh
+   pop bxh
+   pop bxl
+
    rjmp buf_char_roboto_00
 
 buf_next_half_char_roboto_01:
   dec r6    //next font half
-  mov startX,r7
-  //subi YY,-1*8
+  mov startXL,bxl
+  mov startXH,bxh
+
 
   rjmp buf_next_half_char_roboto_00
 
@@ -364,202 +460,91 @@ buf_next_half_char_roboto_end:
 
 ret
 
-/******************************************************************************************
-;Send buffer to oled - a bitmap picture
-;Buffer is sent bit by bit
-;@INPUT: dxh:dxl - color
-;		
-;@USED: Y,startX,startY,temp,r11,argument
-;@STACK:1
-******************************************************************************************/
-ST7735_send_buffer:
-
-    ldi YL,low(graphics_buffer)
-	ldi YH,high(graphics_buffer)
-
-    
-	ldi temp,-1	
-	mov startY,temp
-y_loop_00:			;height
-    mov temp,startY
-	inc temp		;next Y coord
-	mov startY,temp
-	cpi temp,SIZE_Y
-	breq xy_loop_out   
-
-
-	ldi temp,-1	;upt to 0xFF pixels width - not good but will do the work 
-	mov startX,temp
-	
-x_loop_00:			;width in pixels
-    
-	mov temp,startX
-	cpi temp,(SIZE_X-1)
-	breq y_loop_00   
-
-    ld argument,Y+	         ;read byte from buffer	
-	
-	ldi temp,0b10000000      ;start sending from MSB
-	mov r11,temp
-
-bit8_loop:		;next bit from byte	
-
-    tst r11
-	breq x_loop_00		;next X byte
-
-	;increment X coord
-	mov temp,startX
-	inc temp		;next X coord
-	mov startX,temp
-	
-	
-	mov temp,argument 
-	and temp,r11	;is it color pixel (must be 1)
-	lsr r11
-	cpi temp,0
-	breq bit8_loop      ;0 bit - don't color
-    
-	push argument	;var is used in other sub	
-    rcall ST7735_draw_point
-	pop argument
-	
-	nop	
-	rjmp bit8_loop 
-	
-xy_loop_out:
-
-ret
-/***********************************************************************************************
-;Clear local buffer
-;@USED: argument,temp,X,Y
-************************************************************************************************/
-ST7735_clear_buffer:
-	;clear 2048 bytes  128x16
-	ldi XL,low(GRAPHICS_BUFFER_SIZE)
-	ldi XH,high(GRAPHICS_BUFFER_SIZE)
-	
-	ldi YL,low(graphics_buffer)
-	ldi YH,high(graphics_buffer)
-
-	ldi argument,0x00   ;0 data to clear bit by bit
-
-buf_clr_loop_00:		
-	st Y+,argument
-	
-	
-	SUBI16 XL,XH,1
-	CPI16 XL,XH,temp,0
-	brne buf_clr_loop_00 
-ret
-
 /*********************Clear Screen******************
 @USAGE: temp,startX,endX,startY,endY,bxh,bxl
 ************************************************/
-ST7735_clear_screen:
+ST7789_clear_screen:
   // set whole window
   //X1
   ldi temp,0
-  mov startX,temp
+  mov startXH,temp
+  mov startXL,temp
    
   //X2
-  ldi temp,SIZE_X
-  mov endX,temp
+  ldi temp,high(SIZE_X)
+  mov endXH,temp
+  ldi temp,low(SIZE_X)
+  mov endXL,temp
   //Y1
   ldi temp,0
-  mov startY,temp
+  mov startYH,temp
+  mov startYL,temp
   
   //Y2
-  ldi temp,SIZE_Y
-  mov endY,temp
-  
-  rcall ST7735_set_window 
+  ldi temp,high(SIZE_Y)
+  mov endYH,temp
+  ldi temp,low(SIZE_Y)
+  mov endYL,temp
+  rcall ST7789_set_window 
 
+  // access to RAM
+  ldi argument,RAMWR
+  rcall ST7789_command_send
 
+  ldi counter,SIZE_Y+1
+clscr_00:
   //*** draw individual pixels
-  ldi bxh,high(CACHE_SIZE_MEM)			//CRAZY if no loop nothing happens
-  ldi bxl,low(CACHE_SIZE_MEM)
+  ldi bxh,high(SIZE_X+1)			//inner X loop
+  ldi bxl,low(SIZE_X+1)
   
   ldi axh,high(BLACK)
   ldi axl,low(BLACK)
-
-  rcall ST7735_send_color565
-ret 
-
-/*****************Draw pixel*****************
-@INPUT: startX
-		startY		
-        dxh:dxl - color
 	
-@USED:  endX,
-		endY,
-		axh:axl	   			      
-*********************************/
-ST7735_draw_point:
-   mov endX,startX  
-   mov endY,startY
-   
-   //size of 1 pixel
-   ldi bxh,0
-   ldi bxl,1
 
-   rcall ST7735_set_window 
+clscr_01:
+  rcall ST7789_data_16bits_send
+ 
+  DEC16 bxl,bxh
+  CPI16 bxl,bxh,temp,0
+  brne clscr_01
 
-   mov axh,dxh
-   mov axl,dxl
-   rcall ST7735_send_color565
-ret
-
-/***************************************************
-@INPUT: startX,
-        endX,
-		startY,
-		endY,
-        dxh:dxl - color
-		bxh:bxl - size 
-
-@USED: axh:axl	   			      
-*******************************************************/
-
-ST7735_draw_rect:
-   rcall ST7735_set_window 
-
-   mov axh,dxh
-   mov axl,dxl
-   rcall ST7735_send_color565
+  dec counter				//outer Y loop
+  tst counter
+  brne clscr_00
 ret 
 
 /*****Sets Drawing rect************************
 @INPUT: startX,endX,startY,endY
 @USED: axh:axl,argument
 *************************************************/
-ST7735_set_window:
+ST7789_set_window:
   // column address set
   ldi argument,CASET
-  rcall ST7735_command_send
+  rcall ST7789_command_send
 
   // send start x position
-  ldi axh,0
-  mov axl,startX
-  rcall ST7735_data_16bits_send
+  mov axh,startXH
+  mov axl,startXL
+  rcall ST7789_data_16bits_send
 
    // send end x position
-  ldi axh,0
-  mov axl,endX
-  rcall ST7735_data_16bits_send
+  mov axh,endXH
+  mov axl,endXL
+  rcall ST7789_data_16bits_send
 
   // row address set
   ldi argument,RASET
-  rcall ST7735_command_send
+  rcall ST7789_command_send
 
   // send start y position
-  ldi axh,0
-  mov axl,startY
-  rcall ST7735_data_16bits_send
+  mov axh,startYH
+  mov axl,startYL
+  rcall ST7789_data_16bits_send
 
    // send end y position
-  ldi axh,0
-  mov axl,endY
-  rcall ST7735_data_16bits_send
+  mov axh,endYH
+  mov axl,endYL
+  rcall ST7789_data_16bits_send
 
 ret
 
@@ -568,13 +553,13 @@ ret
 		axh:axl  - color info
 @USED: argument,temp
 ********************************************************/
-ST7735_send_color565:
+ST7789_send_color565:
   // access to RAM
   ldi argument,RAMWR
-  rcall ST7735_command_send	
+  rcall ST7789_command_send	
 
 clr565_loop:
-  rcall ST7735_data_16bits_send
+  rcall ST7789_data_16bits_send
  
   DEC16 bxl,bxh
   CPI16 bxl,bxh,temp,0
@@ -582,34 +567,40 @@ clr565_loop:
   brne clr565_loop
 
 ret
-
-
-/*
+/********************************************************
 @INPUT: argument - command to send
 @USED: temp,counter
 @OUTPUT: argument - received data
-*/
-ST7735_commands:
+*********************************************************/
+ST7789_commands:
   //1. send software reset
   ldi argument,SWRESET
-  rcall ST7735_command_send
+  rcall ST7789_command_send
   //***wait 150ms
   ldi counter,15
   rcall delay_by_10ms	
 
   //2. Out of sleep mode
   ldi argument,SLPOUT
-  rcall ST7735_command_send
+  rcall ST7789_command_send
   //***wait 200ms
   ldi counter,20
   rcall delay_by_10ms	
 
   //3. Set color mode
   ldi argument,COLMOD
-  rcall ST7735_command_send
+  rcall ST7789_command_send
   //arguments
-  ldi argument,0x05
-  rcall ST7735_data_8bits_send
+  ldi argument,0x55
+  rcall ST7789_data_8bits_send
+
+  
+  ldi argument,INVON
+  rcall ST7789_command_send
+  //arguments
+  ldi argument,0x00
+  rcall ST7789_data_8bits_send
+
 
   //***wait 10ms
   ldi counter,1
@@ -617,36 +608,36 @@ ST7735_commands:
    
   //4. 
   ldi argument,MADCTL
-  rcall ST7735_command_send
+  rcall ST7789_command_send
   //arguments
   ldi argument,0xA0
-  rcall ST7735_data_8bits_send
+  rcall ST7789_data_8bits_send
 
   //5. Turn screen on  
   ldi argument,DISPON
-  rcall ST7735_command_send
+  rcall ST7789_command_send
   //***wait 200ms
   ldi counter,20
   rcall delay_by_10ms	
     	
 ret
 
-/*
+/******************************************************
 @INPUT: argument - command to send
 @USED: temp
 @OUTPUT: argument - received data
-*/
-ST7735_command_send:
+*******************************************************/
+ST7789_command_send:
  // chip enable - active low
  // CLR_BIT (*(lcd->cs->port), lcd->cs->pin);
   	lds temp,PORTA_OUT  
-	cbr temp,1<<ST7735_CS
+	cbr temp,1<<ST7789_CS
 	sts PORTA_OUT,temp 
   
   // command (active low)
   //CLR_BIT (*(lcd->dc->port), lcd->dc->pin);
   	lds temp,PORTA_OUT  
-	cbr temp,1<<ST7735_DC
+	cbr temp,1<<ST7789_DC
 	sts PORTA_OUT,temp 
 	
 	sts SPID_DATA,argument
@@ -663,25 +654,25 @@ wait_spic:
     // chip disable - idle high
     //SET_BIT (*(lcd->cs->port), lcd->cs->pin);
   	lds temp,PORTA_OUT  
-	sbr temp,1<<ST7735_CS
+	sbr temp,1<<ST7789_CS
 	sts PORTA_OUT,temp 
 
 ret 
 
-/*
+/*********************************************************
 @INPUT: argument - data to send
 @USED: temp
 @OUTPUT: argument - received data
-*/
-ST7735_data_8bits_send:
+**********************************************************/
+ST7789_data_8bits_send:
  // chip enable - active low
   	lds temp,PORTA_OUT  
-	cbr temp,1<<ST7735_CS
+	cbr temp,1<<ST7789_CS
 	sts PORTA_OUT,temp 
 
   // data (active high)  
   	lds temp,PORTA_OUT  
-	sbr temp,1<<ST7735_DC
+	sbr temp,1<<ST7789_DC
 	sts PORTA_OUT,temp 
 	
 	sts SPID_DATA,argument
@@ -696,24 +687,24 @@ wait_spid:
 
 	// chip disable - idle high
   	lds temp,PORTA_OUT  
-	sbr temp,1<<ST7735_CS
+	sbr temp,1<<ST7789_CS
 	sts PORTA_OUT,temp 
 ret
 
-/*
+/*****************************************************
 @INPUT: axh:axl - data to send
 @USED: temp
 @OUTPUT: return - received data
-*/
-ST7735_data_16bits_send:
+******************************************************/
+ST7789_data_16bits_send:
   // chip enable - active low
   	lds temp,PORTA_OUT  
-	cbr temp,1<<ST7735_CS
+	cbr temp,1<<ST7789_CS
 	sts PORTA_OUT,temp 
 
   // data (active high)  
     lds temp,PORTA_OUT  
-	sbr temp,1<<ST7735_DC
+	sbr temp,1<<ST7789_DC
 	sts PORTA_OUT,temp 
 
   // transmitting data high byte
@@ -736,7 +727,7 @@ wait_spid02:
  
 	// chip disable - idle high
   	lds temp,PORTA_OUT  
-	sbr temp,1<<ST7735_CS
+	sbr temp,1<<ST7789_CS
 	sts PORTA_OUT,temp 
 ret
 /*

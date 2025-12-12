@@ -1,1 +1,1 @@
-##### xmega-acorn® micro kernel  v2.0 ROCKS  
+##### xmega-acorn® micro kernel  v3.0 ROCKS  

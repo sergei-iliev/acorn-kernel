@@ -1,207 +1,264 @@
-.include "tasks/st7735.asm"
+/*
+LCD consumer task - reads queue and SPI sends it to ST7790
+*/
 
+.def    argument=r17
+.def    return=r18
+.def    counter=r19  
+
+.def	axl=r20
+.def	axh=r21
+
+.def	bxl=r22
+.def	bxh=r23
+
+.def	dxl=r24
+.def	dxh=r25
+
+.def	cxl=r14
+.def	cxh=r15
+
+.include "tasks/st7789.asm"
+
+.dseg
+	count: .byte 4  ;int size counter	
+.cseg
 /* tft lcd task to render images comming from web serial interface */
 tft_lcd_task:
 
-	_SLEEP_TASK 255
-	rcall ST7735_init
+	_SLEEP_TASK_EXT 255
+	rcall st7789_init
 
-	rcall ST7735_clear_screen
+	rcall st7789_clear_screen
 	
-	//draw text once
-	rcall draw_hello_world_text
-
 	_THRESHOLD_BARRIER_WAIT  InitTasksBarrier,TASKS_NUMBER
+	
+	;***draw text once
+	rcall draw_hello_world_text
+	//rcall test_draw_text_orla
+	clr temp
+	sts count,temp
+	sts count+1,temp
+	sts count+2,temp
+	sts count+3,temp
 
-
+	 
 tft_lcd_main:
+  _EVENT_WAIT  RX_EVENT_ID   ;wait untill 
+    rcall st7789_clear_screen
+	rcall set_window   ;set whole window
 
+	lds temp,PORTB_OUT		
+    cbr temp,1<<BLINK_LED
+	sts PORTB_OUT,temp
+rs_read_loop_00:   //first color byte MSB    
+    ;read from queue target lcd chanel
+	ldi ZL,low(lcd_queue)
+	ldi ZH,high(lcd_queue)	  	
+	ldi axl,low(QUEUE_MAX_SIZE)	
+	ldi axh,high(QUEUE_MAX_SIZE)		
+
+	call spc_queue16_pop
+	brtc rs_read_loop_00					;it is empty nothing to read
 	
-    _YIELD_TASK
+	mov r11,return   //temp storage in r10
+
+rs_read_loop_01://second color byte LSB
+    ;read from queue target lcd chanel
+	ldi ZL,low(lcd_queue)
+	ldi ZH,high(lcd_queue)	  	
+	ldi axl,low(QUEUE_MAX_SIZE)	
+	ldi axh,high(QUEUE_MAX_SIZE)		
+
+	call spc_queue16_pop
+	brtc rs_read_loop_01					;it is empty nothing to read
 	
+	mov r10,return		//temp storage in r10
+
+
+   //color
+   mov axh,r11
+   mov axl,r10
+   rcall ST7789_data_16bits_send
+
+   ;increment size
+	
+	lds axl,count
+	lds axh,count+1
+	lds bxl,count+2
+	lds bxh,count+3
+	ADDI32 axl,axh,bxl,bxh,2
+	sts count,axl
+	sts count+1,axh
+	sts count+2,bxl
+	sts count+3,bxh
+
+
+	CPI32 axl,axh,bxl,bxh,temp,153600	;2*MAX_SIZE*MAX_Y
+    brsh rs_read_loop_02
+ rjmp  rs_read_loop_00  
+
+ rs_read_loop_02: 
+ 	
+	clr temp
+	sts count,temp
+	sts count+1,temp
+	sts count+2,temp
+	sts count+3,temp
+
+	lds temp,PORTB_OUT		
+    sbr temp,1<<BLINK_LED
+	sts PORTB_OUT,temp
+
+
+   _EVENT_RESET RX_EVENT_ID   ;clear pending signals
+ ;rjmp forever
+
 rjmp tft_lcd_main
 
 
 
-;**************draw default font text
-draw_text_default:
-	ldi temp,10
-    mov startX,temp  
-    ldi temp,10
-    mov startY,temp 
-	ldi argument,'S'
-	  //COLOR
-	ldi dxh,high(RED)
-	ldi dxl,low(RED)  
-	rcall ST7735_draw_char
 
-	ldi temp,16
-    mov startX,temp  
-    ldi temp,10
-    mov startY,temp 
-	ldi argument,'e'
-	  //COLOR
-	;ldi dxh,high(RED)
-	;ldi dxl,low(RED)  
-
-	rcall ST7735_draw_char
-
-	ldi temp,22
-    mov startX,temp  
-    ldi temp,10
-    mov startY,temp 
-	ldi argument,'r'
-	rcall ST7735_draw_char
-
-	ldi temp,28
-    mov startX,temp  
-    ldi temp,10
-    mov startY,temp 
-	ldi argument,'g'
-	rcall ST7735_draw_char
-
-	
-	ldi temp,34
-    mov startX,temp  
-    ldi temp,10
-    mov startY,temp 
-	ldi argument,'e'
-	rcall ST7735_draw_char
-
-	
-	ldi temp,40
-    mov startX,temp  
-    ldi temp,10
-    mov startY,temp 
-	ldi argument,'y'
-	rcall ST7735_draw_char
-
-ret
-
-
-;sloped line
-draw_slope_line:
-  //COLOR
-  ldi dxh,high(RED)
-  ldi dxl,low(RED)  
-
-  ldi counter,5    ;Y counter
-  
-  
-  ldi temp,20    
-  mov r10,temp
-
-  slpline_00:  
-  mov startX,r10
-  mov startY,counter
-  rcall ST7735_draw_point
-
-  inc r10
-
-  inc counter
-  cpi counter,100
-  brlo slpline_00
-
-ret
-
-;horizontal line
-draw_hor_line:
-  
-  //COLOR
-  ldi dxh,high(RED)
-  ldi dxl,low(RED)  
-
-  ldi counter,0    ;X counter
-  
-  ldi temp,129
-  mov startY,temp
-
-line_00:  
-  
-  mov startX,counter
-  rcall ST7735_draw_point
-
-  inc counter
-  cpi counter,160
-  brlo line_00
-
-ret
-
-;draw several points
-draw_points:  
-  ldi temp,45
-  mov startX,temp
-  
-  ldi temp,15
-  mov startY,temp
-  
-    //COLOR
-  ldi dxh,high(YELLOW)
-  ldi dxl,low(YELLOW)
-
-  rcall ST7735_draw_point
-
-  ldi temp,46
-  mov startX,temp
-  
-  ldi temp,16
-  mov startY,temp
-  
-  //COLOR
-  ldi dxh,high(YELLOW)
-  ldi dxl,low(YELLOW)
-
-  rcall ST7735_draw_point
-
-  ldi temp,47
-  mov startX,temp
-  
-  ldi temp,17
-  mov startY,temp
-  
-  //COLOR
-  ldi dxh,high(YELLOW)
-  ldi dxl,low(YELLOW)
-
-  rcall ST7735_draw_point
-
-ret
-
-draw_filled_rect:
+//*******************
+set_window:
+  // set whole window
   //X1
-  ldi temp,50
-  mov startX,temp
+  ldi temp,0
+  mov startXH,temp
+  mov startXL,temp
+   
   //X2
-  ldi temp,100
-  mov endX,temp
+  ldi temp,high(SIZE_X)
+  mov endXH,temp
+  ldi temp,low(SIZE_X)
+  mov endXL,temp
   //Y1
-  ldi temp,50
-  mov startY,temp
+  ldi temp,high(0)
+  mov startYH,temp
+  ldi temp,low(0)
+  mov startYL,temp
+  
   //Y2
-  ldi temp,80
-  mov endY,temp
-  
-  //SIZE
-  ldi bxh,high((51*31))  //(rows+1)*(cols+1)
-  ldi bxl,low((51*31))
-  
-  //COLOR
-  ldi dxh,high(CYAN)
-  ldi dxl,low(CYAN)
-  
+  ldi temp,high(SIZE_Y)
+  mov endYH,temp
+  ldi temp,low(SIZE_Y)
+  mov endYL,temp
+  rcall ST7789_set_window 
 
-  rcall ST7735_draw_rect
+   // access to RAM
+   ldi argument,RAMWR
+   rcall ST7789_command_send
+ret
+//*******************
+test_draw_text_orla:
+  //X1  
+  ldi temp,high(50)
+  mov startXH,temp
+  ldi temp,low(50)
+  mov startXL,temp
+       
+  //Y1
+  ldi temp,high(20)
+  mov startYH,temp
+  ldi temp,low(20)
+  mov startYL,temp
 
+  ldi dxh,high(WHITE)
+  ldi dxl,low(WHITE)
+	
+  ldi argument,'!'	
+  rcall ST7789_draw_char_orla
+ret
+//*******************
+test_draw_point:
+  //X1  
+  ldi temp,high(30)
+  mov startXH,temp
+  ldi temp,low(30)
+  mov startXL,temp
+       
+  //Y1
+  ldi temp,high(20)
+  mov startYH,temp
+  ldi temp,low(20)
+  mov startYL,temp
+
+  ldi dxh,high(WHITE)
+  ldi dxl,low(WHITE)
+  rcall st7789_draw_point
+
+  //X1  
+  ldi temp,high(31)
+  mov startXH,temp
+  ldi temp,low(31)
+  mov startXL,temp
+       
+  //Y1
+  ldi temp,high(20)
+  mov startYH,temp
+  ldi temp,low(20)
+  mov startYL,temp
+
+  ldi dxh,high(WHITE)
+  ldi dxl,low(WHITE)
+  rcall st7789_draw_point    
+  //X1  
+  ldi temp,high(32)
+  mov startXH,temp
+  ldi temp,low(32)
+  mov startXL,temp
+       
+  //Y1
+  ldi temp,high(20)
+  mov startYH,temp
+  ldi temp,low(20)
+  mov startYL,temp
+
+  ldi dxh,high(WHITE)
+  ldi dxl,low(WHITE)
+  rcall st7789_draw_point  
 ret
 
-/*****************************************
-TEST col and page positioning for text roboto
-******************************************/
+//*******************
+test_fill_rect:
+  //X1  
+  ldi temp,high(0)
+  mov startXH,temp
+  ldi temp,low(0)
+  mov startXL,temp
+     
+  //X2
+  ldi temp,high(MAX_X)
+  mov endXH,temp
+  ldi temp,low(MAX_X)
+  mov endXL,temp
+  
+  //Y1
+  ldi temp,high(0)
+  mov startYH,temp
+  ldi temp,low(0)
+  mov startYL,temp  
+  
+  //Y2
+  ldi temp,high(MAX_Y)
+  mov endYH,temp
+  ldi temp,low(MAX_Y)
+  mov endYL,temp
+  //color
+  ldi dxh,high(0xbfab)
+  ldi dxl,low(0xbfab)
+  rcall st7789_fill_rect
+
+  
+ret
+//**************************************
 draw_hello_world_text:
-
-   clr startX
-   clr startY   
-
+   //X	
+   ldi XL,low(10)  
+   ldi XH,high(10)
+   //Y
+   ldi temp,10   
+   mov startYL,temp
 
    ldi	ZH,high(hello_world*2)
    ldi	ZL,low(hello_world*2)
@@ -222,18 +279,21 @@ dr_ml_loop:
    
 
    ;coordinates for next char
-   mov temp,startX
-   subi temp,-1*ROBOTO_CHAR_COLS_LEN  ;next char offset in roboto
-   mov startX,temp ;input
+   ;mov temp,startXL
+   //subi temp,-1*ROBOTO_CHAR_COLS_LEN  ;next char offset in roboto
+   adiw XH:XL,ORLA_CHAR_COLS_LEN
+   ;mov startXL,temp ;input
 
           
    ;color
    ldi dxh,high(YELLOW)
    ldi dxl,low(YELLOW)
    
-   push startY  ;it is modified in ST7735_draw_char_roboto
-   call ST7735_draw_char_roboto
-   pop startY
+   mov startXL,XL
+   mov startXH,XH
+   push startYL  ;it is modified in ST7735_draw_char_roboto
+   call ST7789_draw_char_orla
+   pop startYL
 
    pop ZL
    pop ZH   
@@ -242,11 +302,12 @@ dr_ml_loop:
 dr_ml_nxt_line:
    
    ;calculate next Y pos
-   mov temp,startY
-   subi temp,-1*ROBOTO_CHARS_ROWS_LEN  ;next line
-   mov startY,temp 
+   mov temp,startYL
+   subi temp,-1*ORLA_CHARS_ROWS_LEN_BITS  ;next line
+   mov startYL,temp 
 
-   clr startX
+   ldi XL,low(10)
+   ldi XH,high(10)
 
    rjmp dr_ml_loop
 
@@ -257,11 +318,11 @@ ret
 
 
 hello_world:
-.db "FOR GOD SO LOVED ",0x0A
-.db "THE WORLD THAT HE",0x0A
-.db "GAVE HIS ONLY SON",0x0A
-.db "THAT WHOEVER ",0x0A
-.db "BELIEVES IN HIM",0x0A
-.db "MAY NOT PERISH ",0x0A
-.db "BUT HAVE ETERNAL ",0x0A
-.db "LIVE ",0x0C
+.db "For GOD so loved ",0x0A
+.db "the World that HE",0x0A
+.db "gave HIS only SON",0x0A
+.db "that whoever ",0x0A
+.db "believes in HIM",0x0A
+.db "may not perish ",0x0A
+.db "but have eternal ",0x0A
+.db "live ",0x0C

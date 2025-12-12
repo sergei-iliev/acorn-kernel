@@ -11,14 +11,15 @@ in the interrupt handler as it is.
 .ORG        TCC0_OVF_vect
      rjmp SystemTickInt
 ;.ORG        TCC1_OVF_vect
-;     rjmp TCC1Int
+;     jmp TCC1Int
 
 ;.ORG        PORTE_INT0_vect
 ;     rjmp porte_int0
 
-.ORG        PORTE_INT1_vect
-     jmp porte_int1
+;.ORG        PORTE_INT1_vect
+;     jmp porte_int1
 
 .ORG		USARTD0_RXC_vect
 	jmp USART0_RXC_Intr
+
 .EXIT 

@@ -18,7 +18,7 @@ sergei_iliev@yahoo.com
 
 #define OS XMEGAACORN
 
-#define VERSION 2.0
+#define VERSION 3.0
 
 #define HIGH_RAM_ADDRESS high(SRAM_START)
 
@@ -432,6 +432,53 @@ ret
  	call TaskSchedular
 .ENDMACRO
 
+#ifdef TASK_SLEEP_EXT
+;----------------------------------------------------------
+;USER MODE API
+;USAGE:	Save time in 16 bit units to wait on in current task TCB
+;		Used in defined thread context
+;USED:	temp,r17,YL,YH(saved on current task stack)
+;INPUT:   @0 - time in units 16 bit size
+;WARNING:  NOT USED IN INTERRUPT,only current thread calls it!!!!!!!!!!!
+;----------------------------------------------------------
+.MACRO  _SLEEP_TASK_EXT
+	push temp
+	push r17
+	push YL
+	push YH 
+
+	lds YL, pxCurrentTCB
+	ldi YH,HIGH_RAM_ADDRESS       ;small RAM devices only!!!! 
+
+	;store value 
+	ldi r17,high(@0) 
+	ldi temp,low(@0) 
+	std Y+TASK_TIMEOUT_OFFSET,r17  ;high
+	std Y+TASK_TIMEOUT_OFFSET+1,temp ;low
+    	
+;***wait for it
+wait:
+;***yield processing
+    _YIELD_TASK
+
+	ldd r17,Y+TASK_TIMEOUT_OFFSET  
+	ldd temp,Y+TASK_TIMEOUT_OFFSET+1 
+	tst r17
+	breq sleep_ext_0	
+	rjmp wait   ;not zero yet
+sleep_ext_0:
+    tst temp
+	breq end	;both are zero		
+    rjmp wait   ;not zero yet
+
+
+end:
+	pop YH
+	pop YL 
+	pop r17
+	pop temp
+.ENDMACRO
+#else					 		 	 
 ;----------------------------------------------------------------
 ;USER MODE API
 ;USAGE:	Save time in units to wait on in current task TCB
@@ -465,17 +512,56 @@ end:
 	pop YL 
 	pop temp
 .ENDMACRO
+#endif	  
 ;----------------------------------------------------------------
 ;KERNEL MODE API 
-;USAGE:	Decrement timeout byte in each task's TCB if<>0
+;USAGE:	16 bit value(long timeout) - decrement timeout byte in each task's TCB if<>0
 ;		Walks through all TCB and decrements timeout byte
-;		Fired by 16bit system timer      
-;USED:	temp,YL,YH(saved on current task stack,temp is saved in _PRE_INTERRUPT)
+;USED:	temp,r17,r18,YL,YH(saved on current task stack,temp is saved in _PRE_INTERRUPT)
 ;INPUT: none
 ;WARNING: USED IN INTERRUPT ONLY!!!
+;		  At user level use _TASK_SLEEP_EXT
+;		  extra 3 bytes on stack	
 ;----------------------------------------------------------------
 
 .MACRO _kePROCESS_SLEEP_INTERVAL
+#ifdef TASK_SLEEP_EXT
+;-------16 bit long sleep--------------
+    push r17
+	push YL
+	push YH 
+
+	ldi YL,low(TCB)        
+    ldi YH,high(TCB)
+
+loop:
+	ldd r17,Y+TASK_TIMEOUT_OFFSET  
+	ldd temp,Y+TASK_TIMEOUT_OFFSET+1 
+	tst r17
+	breq process_sleep_ext_0	
+	rjmp process_sleep_ext_1   ;not zero yet
+process_sleep_ext_0:
+    tst temp
+	breq skip	;both are zero		
+;not zero yet - decrement
+process_sleep_ext_1:
+
+    SUBI16 temp,r17,1	;decrement 16 bit timer value
+	std Y+TASK_TIMEOUT_OFFSET,r17  ;high
+	std Y+TASK_TIMEOUT_OFFSET+1,temp ;low
+skip:	   
+	cpi YL,low(TCB+(TASK_TCB_SIZE*(TASKS_NUMBER-1)))      ;test for end of TCB array
+    breq end
+
+	adiw YH:YL,TASK_TCB_SIZE
+	rjmp loop  
+end:
+	pop YH
+	pop YL 	
+	pop r17
+
+#else
+;-------8 bit long sleep--------------
 	push YL
 	push YH 
 
@@ -497,7 +583,7 @@ skip:
 end:
 	pop YH
 	pop YL 
-
+#endif
 .ENDMACRO
 ;----------------------------------------------------------------
 ;USER MODE API 
@@ -617,7 +703,7 @@ switch_task_on:
 .ENDMACRO
 ;----------------------------------------------------------------
 ;KERNEL MODE API
-;Start the task schedular
+;Start the task schedular and start running Task #1
 ;Enable global interrups							   
 ;@WARNING: Platform dependent in regard to Timer being used for scheduling
 ;----------------------------------------------------------------
@@ -666,10 +752,12 @@ loop:
 	ldi YH,high(TCB)   ;possible if all TCB structures reside within same 256 RAM page
 	ld YL,X 
     
-	;there is an interrupt but task to dispatch to is in sleep -> waik it up!	 
+	;there is an interrupt but task to dispatch to is in sleep -> wake it up!	 
     clr temp    
 	std Y+TASK_TIMEOUT_OFFSET,temp
-
+	#ifdef TASK_SLEEP_EXT
+	std Y+TASK_TIMEOUT_OFFSET+1,temp
+	#endif
 	rjmp end
 
 ;2.NORMAL level round robin(eternal loop if no task is ready,will block if all tasks suspended)

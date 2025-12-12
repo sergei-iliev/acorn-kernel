@@ -6,7 +6,7 @@ Define the frequency value the CPU is running at
 /*
 *Define the number of tasks. Up to 16 for X and Mega kernel 
 */
-#define TASKS_NUMBER 4
+#define TASKS_NUMBER 3
 
 /*
 Program Counter register size (4 or 3 bytes)
@@ -50,7 +50,7 @@ Interrupt Dispatch Table size - up to 8  (8 tasks max to handle Interrupt Dispat
 /*
 Enable sleep mode 
 */
-#define SLEEP_MODE
+;#define SLEEP_MODE
 #ifdef SLEEP_MODE
 /*
 Define the maximum number to participate in SLEEP sequence

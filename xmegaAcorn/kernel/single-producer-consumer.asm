@@ -19,11 +19,17 @@ N < 256 size byte array (each element 1 byte long)
 #define HEAD_OFFSET 0
 #define TAIL_OFFSET 1
 #define BUFFER_OFFSET 2
+#define HEADER_SIZE 2
 
+/*16 bit memory structure
+2. byte - head index points to next occupied slot to be read,starts from 0 index
+2. byte - tail index points to next free slot to be written, starts from 0 index
+N < 2^16 size byte array (each element 1 byte long)
+*/
 #define HEAD_OFFSET16 0
 #define TAIL_OFFSET16 2
 #define BUFFER_OFFSET16 4
-
+#define HEADER_SIZE16 4
 .cseg
 /**********************************************************************16 bit Queue*****************************************************/
 /***************************init queue************************
@@ -43,7 +49,7 @@ ret
 @WARNING: Task call only
 @INPUT: Z - queue pointer 
 		axh:axl - MAX size of backing static array
-		dxh:dxl - value
+		argument - value
 @USAGE: bxl,bxh,r0,r1,r2,r3
 @OUTPUT: T flag 0 - failure
 				1 - success
@@ -62,15 +68,10 @@ spc_queue16_push:
 
 	adiw ZH:ZL,BUFFER_OFFSET16			;position to beginning of buffer
 
-	;2 byte value -> multiply by 2 to real buffer index
-	mov r2,bxl	
-	mov r3,bxh
-	LSL16 r3,r2
-
-	ADD16 ZL,ZH,r2,r3		;position on next index
+	ADD16 ZL,ZH,bxl,bxh 	;position on next index
 ;1. store value FIRST
-	st Z+,dxh				;store 16 bit value
-	st Z,dxl
+	st Z,argument				;store 16 bit value
+	
 	;fix tail index->move to next free index slot in array
 	ADDI16 bxl,bxh,1
 	
@@ -95,12 +96,11 @@ ret
 spcque16push_0:
 	clt					;buffer is full
 ret
-
 /******************************Push Item in  queue from ISR***********************
 @WARNING: ISR call only
 @INPUT: Z - queue pointer 
 		axh:axl - MAX size of backing static array
-		dxh:dxl - value
+		argument - value
 @USAGE: bxl,bxh,r0,r1,r2,r3
 @OUTPUT: T flag 0 - failure
 				1 - success
@@ -119,15 +119,9 @@ spc_queue16_push_from_isr:
 
 	adiw ZH:ZL,BUFFER_OFFSET16			;position to beginning of buffer
 
-	;2 byte value -> multiply by 2 to real buffer index
-	mov r2,bxl	
-	mov r3,bxh
-	LSL16 r3,r2
-
-	ADD16 ZL,ZH,r2,r3		;position on next index
+	ADD16 ZL,ZH,bxl,bxh 	;position on next index
 ;1. store value FIRST
-	st Z+,dxh				;store 16 bit value
-	st Z,dxl
+	st Z,argument				;store 16 bit value
 	;fix tail index->move to next free index slot in array
 	ADDI16 bxl,bxh,1
 	
@@ -159,7 +153,7 @@ ret
 @USAGE: bxl,bxh,r0,r1,r2,r3			
 @OUTPUT: T flag 0 - failure
 				1 - success
-		dxh:dxl - value
+		return - value
 *********************************************************/
 spc_queue16_pop:
 	rcall spc_queue16_is_empty
@@ -174,15 +168,10 @@ spc_queue16_pop:
 
 	adiw ZH:ZL,BUFFER_OFFSET16			;position to beginning of buffer
 
-	;2 byte value -> multiply by 2 to real buffer position
-	mov r2,bxl	
-	mov r3,bxh
-	LSL16 r3,r2
-
-	ADD16 ZL,ZH,r2,r3
+	ADD16 ZL,ZH,bxl,bxh	;position on next index
 ;1. read value FIRST
-	ld dxh,Z+				;read 16 bit value
-	ld dxl,Z
+	ld return,Z				;read 16 bit value
+	
 	;fix tail index->move to next free index slot in array
 	ADDI16 bxl,bxh,1
 	
@@ -296,6 +285,29 @@ ret
 spcque16ty_0:
   set
 ret
+/*********Is queue empty call from ISR*******
+@WARNING: ISR call only
+@INPUT: Z queue pointer 	
+@USAGE: bxh,bxl,cxh,chl
+@OUTPUT: T flag 0 - not empty
+				1 - empty
+********************************/
+spc_queue16_is_empty_from_isr:
+  clt    
+
+  ldd bxh,Z+TAIL_OFFSET16	;current tail MSB
+  ldd bxl,Z+TAIL_OFFSET16+1	;current tail LSB
+
+  ldd cxh,Z+HEAD_OFFSET16	;current head MSB
+  ldd cxl,Z+HEAD_OFFSET16+1	;current head LSB
+
+  CP16 bxl,bxh,cxl,cxh
+  breq spcque16tyisr_0			;if equal -> empty queue
+ret
+spcque16tyisr_0:
+  set
+ret
+
 /************************************************************8 bit********************************************/
 
 /***************************init queue************************
