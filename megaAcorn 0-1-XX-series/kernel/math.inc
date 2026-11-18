@@ -300,9 +300,124 @@
  lsr @0              ;Shift MSB, C = old bit 8
  ror @1              ;Shift LSB, C = old bit 0
 .ENDMACRO
-/*
+;***************************************************************************
+;*
+;* "MUL16" - Unsigned 16 x 16 -> 32 multiply
+;*
+;* Multiplies a (MSB:LSB) by b (MSB:LSB). The 32-bit product replaces p.
+;* Argument order is LSB,MSB for each 16-bit operand, then product
+;* LSB,b1,b2,MSB — same as ADD16 / ADD32.
+;*
+;* Call:    MUL16 a_LSB, a_MSB, b_LSB, b_MSB, p0, p1, p2, p3, zreg
+;*          a_LSB/b_LSB = bits 7:0, a_MSB/b_MSB = bits 15:8
+;*          p0 = product LSB (bits 7:0), p3 = product MSB (bits 31:24)
+;*          zreg = 0-register for carry (cleared by the macro)
+;* Result:  p3:p2:p1:p0 (MSB:...:LSB) = a_MSB:a_LSB * b_MSB:b_LSB
+;*
+;* Number of words	:18
+;* Number of cycles	:18 + mul (2 cycles each, 4 muls)
+;*
+;* Note: uses AVR mul; r0 and r1 are overwritten (product of each mul).
+;*       a, b, p, and zreg must all be distinct, and none may be r0 or r1.
+;*       a and b are unchanged. p and zreg are overwritten.
+;*
+;* Example:
+;*   ; axh:axl (MSB:LSB) = 0x0003, bxh:bxl (MSB:LSB) = 0x0005
+;*   MUL16 axl,axh,bxl,bxh,dxl,dxh,cxl,cxh,temp
+;*   ; cxh:cxl:dxh:dxl (MSB:...:LSB) = 0x0000000F
+;*
+;*   ; 0xFFFF * 0xFFFF = 0xFFFE0001
+;*   MUL16 axl,axh,bxl,bxh,dxl,dxh,cxl,cxh,temp
+;*
+;***************************************************************************
+.MACRO MUL16
+	clr @6                 ;p2 = 0
+	clr @7                 ;p3 = 0
+	clr @8                 ;zreg = 0
+
+	mul @0,@2              ;a_LSB * b_LSB -> r1:r0
+	mov @4,r0              ;p0
+	mov @5,r1              ;p1
+
+	mul @0,@3              ;a_LSB * b_MSB
+	add @5,r0
+	adc @6,r1
+	adc @7,@8              ;carry into p3
+
+	mul @1,@2              ;a_MSB * b_LSB
+	add @5,r0
+	adc @6,r1
+	adc @7,@8
+
+	mul @1,@3              ;a_MSB * b_MSB
+	add @6,r0
+	adc @7,r1              ;p3:p2 += AH*BH
+.ENDMACRO
+
+;***************************************************************************
+;*
+;* "DIV16" - Unsigned 16 / 16 -> 16 quotient + 16 remainder
+;*
+;* Restoring shift-subtract. No hardware DIV on AVR.
+;* Argument order is LSB,MSB for dividend, divisor, quotient, remainder.
+;*
+;* Call:    DIV16 n_LSB, n_MSB, d_LSB, d_MSB, q_LSB, q_MSB, r_LSB, r_MSB, cnt
+;*          n = dividend, d = divisor (MSB:LSB)
+;*          q = quotient, r = remainder (MSB:LSB)
+;*          cnt = high register (r16-r31), used as bit counter
+;* Result:  q_MSB:q_LSB = n / d
+;*          r_MSB:r_LSB = n % d
+;* Flags:   T=1 success; T=0 divide by zero (q=0, r=n)
+;*
+;* Note: n and d are unchanged if q,r,cnt are distinct from them.
+;*       q, r, and cnt are overwritten. Invoke once per file (loop labels).
+;*       Wrap in a subroutine if you need more than one call site.
+;*
+;* Example:
+;*   ; axh:axl (MSB:LSB) = 20, bxh:bxl (MSB:LSB) = 3
+;*   DIV16 axl,axh,bxl,bxh,dxl,dxh,cxl,cxh,temp
+;*   ; dxh:dxl = 6, cxh:cxl = 2
+;*   brtc div0
+;*
+;***************************************************************************
+.MACRO DIV16
+	mov @8,@2
+	or @8,@3
+	brne div16_nz              ;d != 0
+	clr @4                     ;q = 0
+	clr @5
+	mov @6,@0                  ;r = n
+	mov @7,@1
+	clt
+	rjmp div16_end
+div16_nz:
+	mov @4,@0                  ;q = n (shifted into quotient)
+	mov @5,@1
+	clr @6                     ;r = 0
+	clr @7
+	ldi @8,16
+div16_lp:
+	lsl @4                     ;r:q << 1
+	rol @5
+	rol @6
+	rol @7
+	cp @6,@2                   ;r < d ?
+	cpc @7,@3
+	brcs div16_lt
+	sub @6,@2                  ;r -= d
+	sbc @7,@3
+	ori @4,1                   ;quotient bit = 1
+div16_lt:
+	dec @8
+	brne div16_lp
+	set                        ;T=1 success
+div16_end:
+.ENDMACRO
+
+
+/***************************************************************************
 32 - bit arithmetic 
-*/
+****************************************************************************/
 
 ;***************************************************************************
 ;*
